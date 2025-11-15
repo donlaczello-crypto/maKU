@@ -1,0 +1,8 @@
+{
+  "name": "Copy of PASiR: Proaktywny Asystent Wsparcia i Rozwoju",
+  "description": "Zaawansowane narzędzie dla opiekunów do analizy i interpretacji złożonych zachowań dzieci, w szczególności tych z ASD, ADHD i traumą, wykorzystujące model ABC, analizę rysunków i strategie wsparcia oparte na AI.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
