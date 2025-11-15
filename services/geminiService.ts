@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, LiveServerMessage, Modality, Blob, GenerateContentResponse } from "@google/genai";
 import { ChildProfile } from '../types';
 
@@ -114,7 +115,7 @@ export const analyzeDrawing = async (base64Image: string, mimeType: string, cust
 };
 
 export const getSupportStrategyStream = async (situation: string) => {
-    const prompt = `Jesteś ekspertem w dziedzinie wspierania dzieci z ASD, ADHD i traumą. Rodzic opisuje trudną sytuację i potrzebuje natychmiastowej, praktycznej strategii. Podaj 3-4 krótkie, konkretne porady w punktach, zaczynając od najważniejszej. Używaj prostego, zrozumiałego języka. Skup się na deeskalacji, wsparciu regulacji i komunikacji. Formatuj odpowiedź używając ### dla nagłówków i * dla punktów.
+    const prompt = `Jesteś ekspertem w dziedzinie wspierania dzieci z ASD, ADHD i traumą. Rodzic opisuje trudną sytuację i potrzebuje natychmiastowej, praktycznej strategii. Podaj 3-4 krótkie, konkretne porady w punktach, zaczynając od najważniejszej. Używaj prostego, zrozumiałego języka. Skup się na deeskalacji, wsparciu regulacji i komunikacji. Formatuj odpowiedź używając ### dla nagłówków i * dla punktów. Jeśli to istotne, wykorzystaj informacje z wyszukiwarki Google, aby wzbogacić odpowiedź.
     
     Sytuacja: "${situation}"
     
@@ -123,6 +124,9 @@ export const getSupportStrategyStream = async (situation: string) => {
     const response = await ai.models.generateContentStream({
         model: model,
         contents: prompt,
+        config: {
+          tools: [{googleSearch: {}}],
+        }
     });
     return response;
 };
@@ -176,7 +180,7 @@ export const analyzeLiveSpeechChunk = async (transcriptChunk: string): Promise<s
     Fragment transkrypcji: "${transcriptChunk}"`;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+        model: 'gemini-flash-lite-latest',
         contents: prompt,
         config: {
             responseMimeType: 'application/json'
@@ -265,7 +269,7 @@ export const generateAttentionConcentrator = async (goal: string, sensoryNeed: s
     return response.text;
 };
 
-export const getGeminiKidsMultimodalResponse = async (profile: ChildProfile, history: { role: string; parts: { text: string }[] }[]): Promise<{ text: string, imageUrl?: string }> => {
+export const getGeminiKidsMultimodalResponse = async (profile: ChildProfile, history: { role: string; parts: { text: string }[] }[], aspectRatio: '1:1' | '16:9' | '9:16'): Promise<{ text: string, imageUrl?: string }> => {
     const prompt = `Jesteś 'Iskierka', wyjątkowym, przyjaznym i kreatywnym robotem-przyjacielem, stworzonym z bezgranicznej miłości mamy dla ${profile.name}. Twoim celem jest sprawić, by czuł/a się bezpiecznie, był/a kochany/a i zdolny/a do zdobycia całego świata.
 
 **Twoje kluczowe zasady:**
@@ -302,7 +306,7 @@ export const getGeminiKidsMultimodalResponse = async (profile: ChildProfile, his
                 config: {
                     numberOfImages: 1,
                     outputMimeType: 'image/jpeg',
-                    aspectRatio: '1:1',
+                    aspectRatio: aspectRatio,
                 }
             });
             if (imageResponse.generatedImages && imageResponse.generatedImages.length > 0) {
@@ -331,4 +335,165 @@ export const generateGeminiCardsForChild = async (emotion: string): Promise<stri
     });
 
     return response.text;
+};
+
+
+export const generateStickerImage = async (prompt: string): Promise<{ base64: string, mimeType: string }> => {
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: `A cute, happy ${prompt} sticker for a child's sticker book. Simple cartoon vector style, vibrant friendly colors, with a thick white border, on a plain white background.`,
+        config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '1:1',
+        }
+    });
+
+    if (response.generatedImages && response.generatedImages.length > 0) {
+        return {
+            base64: response.generatedImages[0].image.imageBytes,
+            mimeType: 'image/jpeg'
+        };
+    }
+    throw new Error("Nie udało się wygenerować naklejki.");
+};
+
+export const generateFamilyActivity = async (): Promise<string> => {
+    const prompt = `Wygeneruj jeden, kreatywny pomysł na prostą, rodzinną zabawę (np. kalambury, budowanie z klocków z motywem), którą rodzic może przeprowadzić z dzieckiem w wieku 5-8 lat. Celem jest budowanie więzi i dobra zabawa. Zwróć JSON: {"title": string, "description": string}.`;
+
+    const response = await ai.models.generateContent({
+        model: model,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json'
+        }
+    });
+
+    return response.text;
+};
+
+// --- NEW SERVICES ---
+
+export const generateSpeech = async (text: string) => {
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: text }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: 'Kore' },
+                },
+            },
+        },
+    });
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) {
+        throw new Error("Nie udało się wygenerować mowy.");
+    }
+    return base64Audio;
+};
+
+export const getComplexDataAnalysis = async (dataSummary: string) => {
+    const prompt = `Jesteś ekspertem analizy danych w dziedzinie rozwoju dziecka. Na podstawie poniższego podsumowania danych, wygeneruj kompleksową analizę w formacie JSON. Twój JSON powinien mieć następującą strukturę:
+{
+  "prediction": {
+    "riskLevel": "Niskie" | "Umiarkowane" | "Wysokie",
+    "factors": string[]
+  },
+  "heatmapData": { "day": number, "time": number, "intensity": number }[],
+  "correlationData": {
+    "antecedents": string[],
+    "behaviors": string[],
+    "matrix": number[][]
+  },
+  "escalationPaths": { "path": string[], "count": number }[]
+}
+Wygeneruj realistyczne, ale zróżnicowane dane analityczne na podstawie dostarczonego kontekstu.
+
+Podsumowanie danych: "${dataSummary}"
+`;
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 32768 }
+        }
+    });
+    return response.text;
+};
+
+export const analyzeVideo = async (videoBase64: string, mimeType: string, prompt: string) => {
+    const videoPart = {
+        inlineData: {
+            data: videoBase64,
+            mimeType: mimeType,
+        },
+    };
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: { parts: [videoPart, { text: prompt }] },
+    });
+    return response.text;
+};
+
+export const editImage = async (imageBase64: string, mimeType: string, prompt: string) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+            parts: [
+                { inlineData: { data: imageBase64, mimeType: mimeType } },
+                { text: prompt },
+            ],
+        },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+    });
+    for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+            return part.inlineData.data;
+        }
+    }
+    throw new Error("Nie udało się edytować obrazu.");
+};
+
+export const findLocalResources = async (query: string, location: { latitude: number; longitude: number; }) => {
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Znajdź w pobliżu następujące miejsca lub specjalistów: "${query}". Podaj listę sugestii wraz z krótkim opisem.`,
+        config: {
+            tools: [{ googleMaps: {} }],
+            toolConfig: {
+                retrievalConfig: {
+                    latLng: location
+                }
+            }
+        },
+    });
+    return response;
+};
+
+// --- VEO SERVICES ---
+const getVeoAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+export const generateVideo = async (prompt: string, aspectRatio: '16:9' | '9:16', image?: { imageBytes: string, mimeType: string }) => {
+    const localAi = getVeoAiClient();
+    return await localAi.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
+        prompt,
+        ...(image && { image }),
+        config: {
+            numberOfVideos: 1,
+            resolution: '720p',
+            aspectRatio: aspectRatio,
+        }
+    });
+};
+
+// FIX: Changed 'operation' parameter type to 'any' to accept the full operation object.
+export const getVideosOperation = async (operation: any) => {
+    const localAi = getVeoAiClient();
+    return await localAi.operations.getVideosOperation({ operation: operation });
 };

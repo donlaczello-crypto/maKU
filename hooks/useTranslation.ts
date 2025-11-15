@@ -23,9 +23,24 @@ export const useTranslation = () => {
 
   const { language, setLanguage } = context;
 
-  const t = (key: string): string => {
+  // FIX: Updated the `t` function to handle interpolation for dynamic values.
+  const t = (key: string, options?: { [key: string]: string | number }): string => {
     const translation = getNestedTranslation(translations[language], key);
-    return translation || key; // Return key if translation not found
+
+    if (typeof translation !== 'string') {
+        return key; // Return key if translation not found or is not a string
+    }
+
+    if (options) {
+        let result = translation;
+        for (const [optionKey, value] of Object.entries(options)) {
+            const regex = new RegExp(`{${optionKey}}`, 'g');
+            result = result.replace(regex, String(value));
+        }
+        return result;
+    }
+
+    return translation;
   };
 
   return { t, setLanguage, currentLanguage: language };

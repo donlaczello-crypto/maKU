@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { analyzeLiveSpeechChunk } from '../services/geminiService';
 import { LiveSpeechAnalysis } from '../types';

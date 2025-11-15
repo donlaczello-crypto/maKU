@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { RegulationState, LinkedDrawingData } from '../types';
 import Icon from './common/Icon';
@@ -28,15 +27,24 @@ const ABCLogger: React.FC<ABCLoggerProps> = ({ linkedDrawing, onClearLinkedDrawi
   const [triggers, setTriggers] = useState('');
 
   useEffect(() => {
-    if (isActive) {
-      timerRef.current = window.setInterval(() => {
-        setDuration((prev) => prev + 1);
-      }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
+    // This effect manages the timer interval.
+    // It only runs when the timer is active.
+    if (!isActive) {
+      return;
     }
+
+    // Start the interval, incrementing the duration every second.
+    timerRef.current = window.setInterval(() => {
+      setDuration((prev) => prev + 1);
+    }, 1000);
+
+    // The cleanup function clears the interval when the component
+    // unmounts or when `isActive` changes to false.
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [isActive]);
 

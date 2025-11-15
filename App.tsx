@@ -22,12 +22,19 @@ import DyadicRegulation from './components/DyadicRegulation';
 import AttentionHub from './components/AttentionHub';
 import GeminiKids from './components/GeminiKids';
 import Smartwatch from './components/Smartwatch';
+import LoyaltyProgram from './components/LoyaltyProgram';
+import ImageEditor from './components/ImageEditor';
+import VideoAnalyzer from './components/VideoAnalyzer';
+import VideoGenerator from './components/VideoGenerator';
+import LocalResources from './components/LocalResources';
 import { useTranslation } from './hooks/useTranslation';
+import { useTimeBasedTheme } from './hooks/useTimeBasedTheme';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   const [linkedDrawingData, setLinkedDrawingData] = useState<LinkedDrawingData | null>(null);
   const { t } = useTranslation();
+  const { themeClasses } = useTimeBasedTheme();
 
   const handleLinkToABC = (data: LinkedDrawingData) => {
     setLinkedDrawingData(data);
@@ -81,6 +88,16 @@ const App: React.FC = () => {
         return <GeminiKids />;
       case View.Smartwatch:
         return <Smartwatch />;
+      case View.LoyaltyProgram:
+        return <LoyaltyProgram />;
+      case View.ImageEditor:
+        return <ImageEditor />;
+      case View.VideoAnalyzer:
+        return <VideoAnalyzer />;
+      case View.VideoGenerator:
+        return <VideoGenerator />;
+      case View.LocalResources:
+        return <LocalResources />;
       case View.ProgressTracker:
         return (
             <div className="p-4 md:p-8 max-w-4xl mx-auto text-center">
@@ -94,7 +111,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
+    <div className={`min-h-screen bg-slate-50 font-sans flex flex-col transition-colors duration-1000 ${themeClasses}`}>
       <Header currentView={currentView} setView={setCurrentView} />
       <main className="flex-grow">
         {renderView()}

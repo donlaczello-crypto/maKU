@@ -1,6 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
 import { getSupportStrategyStream } from '../services/geminiService';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
+
+interface GroundingChunk {
+    web: {
+        uri: string;
+        title: string;
+    };
+}
 
 const StrategyGuide: React.FC = () => {
     const [situation, setSituation] = useState('');
@@ -8,6 +16,7 @@ const StrategyGuide: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [isComplete, setIsComplete] = useState(false);
+    const [sources, setSources] = useState<GroundingChunk[]>([]);
 
     useEffect(() => {
         if (isComplete && strategy) {
@@ -17,7 +26,7 @@ const StrategyGuide: React.FC = () => {
                 .replace(/\n/g, '<br/>');
             setStrategy(formattedResult);
         }
-    }, [isComplete]);
+    }, [isComplete, strategy]);
 
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -30,9 +39,19 @@ const StrategyGuide: React.FC = () => {
         setIsLoading(true);
         setIsComplete(false);
         setStrategy('');
+        setSources([]);
+
         try {
             const stream = await getSupportStrategyStream(situation);
+            let firstChunk = true;
             for await (const chunk of stream) {
+                 if (firstChunk) {
+                    const metadata = chunk.candidates?.[0]?.groundingMetadata;
+                    if (metadata?.groundingChunks) {
+                        setSources(metadata.groundingChunks as GroundingChunk[]);
+                    }
+                    firstChunk = false;
+                }
                 setStrategy(prev => prev + chunk.text);
             }
         } catch (err) {
@@ -77,6 +96,20 @@ const StrategyGuide: React.FC = () => {
                 <div className="mt-8 bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
                      <h2 className="text-xl font-bold text-slate-800 mb-4">Twoje spersonalizowane strategie</h2>
                      <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: strategy }} />
+                     {sources.length > 0 && (
+                        <div className="mt-6 pt-4 border-t border-slate-200">
+                            <h4 className="font-semibold text-slate-600 text-sm mb-2">Źródła:</h4>
+                            <ul className="list-disc pl-5 space-y-1">
+                                {sources.map((source, index) => (
+                                    <li key={index} className="text-sm">
+                                        <a href={source.web.uri} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">
+                                            {source.web.title || source.web.uri}
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                     )}
                 </div>
             )}
         </div>

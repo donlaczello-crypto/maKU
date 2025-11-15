@@ -21,6 +21,11 @@ export enum View {
   GeminiKids,
   Smartwatch,
   ProgressTracker,
+  LoyaltyProgram,
+  ImageEditor,
+  VideoAnalyzer,
+  VideoGenerator,
+  LocalResources,
 }
 
 export interface ABCEvent {
@@ -126,4 +131,22 @@ export interface LinkedDrawingData {
     analysis: string;
     context: string;
     imageBase64: string;
+}
+
+export interface Sticker {
+  id: string;
+  imageBase64: string;
+  name: string;
+  earnedDate: string;
+}
+
+export interface FamilyActivity {
+    title: string;
+    description: string;
+}
+
+export interface Selfie {
+    id: string;
+    imageBase64: string;
+    date: string;
 }

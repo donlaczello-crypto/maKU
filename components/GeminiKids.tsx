@@ -1,8 +1,39 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { getGeminiKidsMultimodalResponse } from '../services/geminiService';
+import { getGeminiKidsMultimodalResponse, generateSpeech } from '../services/geminiService';
 import { ChildProfile } from '../types';
 import Icon from './common/Icon';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
+
+// --- AUDIO UTILITY FUNCTIONS ---
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
 
 type Message = {
     role: 'user' | 'model';
@@ -10,18 +41,42 @@ type Message = {
     imageUrl?: string;
 };
 
+type AspectRatio = '1:1' | '16:9' | '9:16';
+
 const GeminiKids: React.FC = () => {
     const [profile, setProfile] = useState<ChildProfile | null>(null);
     const [history, setHistory] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
+    const [isSpeaking, setIsSpeaking] = useState(false);
     const chatContainerRef = useRef<HTMLDivElement>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const activeAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
 
     useEffect(() => {
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
     }, [history]);
+    
+    useEffect(() => {
+        // Initialize AudioContext on first interaction
+        const initAudio = () => {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+            }
+            document.removeEventListener('click', initAudio);
+        };
+        document.addEventListener('click', initAudio);
+
+        return () => {
+            document.removeEventListener('click', initAudio);
+            activeAudioSourceRef.current?.stop();
+            audioContextRef.current?.close().catch(console.error);
+        };
+    }, []);
 
     const handleProfileSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -48,7 +103,8 @@ const GeminiKids: React.FC = () => {
         try {
             const response = await getGeminiKidsMultimodalResponse(
                 profile,
-                newHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }))
+                newHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
+                aspectRatio
             );
 
             const modelMessage: Message = {
@@ -70,6 +126,36 @@ const GeminiKids: React.FC = () => {
             setIsLoading(false);
         }
     };
+    
+     const handleSpeak = async (text: string) => {
+        if (isSpeaking) {
+            activeAudioSourceRef.current?.stop();
+            setIsSpeaking(false);
+            return;
+        }
+        if (!audioContextRef.current) return;
+        
+        setIsSpeaking(true);
+        try {
+            const base64Audio = await generateSpeech(text);
+            const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
+            
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContextRef.current.destination);
+            source.start();
+            activeAudioSourceRef.current = source;
+            source.onended = () => {
+                setIsSpeaking(false);
+                activeAudioSourceRef.current = null;
+            };
+
+        } catch (error) {
+            console.error("Error generating or playing speech:", error);
+            setIsSpeaking(false);
+        }
+    };
+
 
     if (!profile) {
         return (
@@ -110,7 +196,7 @@ const GeminiKids: React.FC = () => {
                     {history.map((msg, index) => (
                         <div key={index} className={`flex items-end gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                             {msg.role === 'model' && <div className="w-10 h-10 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0"><Icon name="gemini-kids" /></div>}
-                            <div className={`px-4 py-3 rounded-2xl max-w-sm ${msg.role === 'user' ? 'bg-sky-500 text-white rounded-br-none' : 'bg-slate-700 text-white rounded-bl-none'}`}>
+                            <div className={`relative group px-4 py-3 rounded-2xl max-w-sm ${msg.role === 'user' ? 'bg-sky-500 text-white rounded-br-none' : 'bg-slate-700 text-white rounded-bl-none'}`}>
                                 {msg.imageUrl && (
                                     <img 
                                         src={msg.imageUrl} 
@@ -119,6 +205,17 @@ const GeminiKids: React.FC = () => {
                                     />
                                 )}
                                 <p className="text-base whitespace-pre-wrap">{msg.text}</p>
+                                {msg.role === 'model' && msg.text && (
+                                    <button 
+                                      onClick={() => handleSpeak(msg.text)}
+                                      className="absolute -bottom-4 -right-4 bg-white text-sky-600 rounded-full p-2 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                                      aria-label="Przeczytaj na głos"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M10 3a1 1 0 011 1v1.134a7.963 7.963 0 013.913 2.543l.886-.886a1 1 0 111.414 1.414l-.886.886A7.963 7.963 0 0117 10h1.134a1 1 0 110 2H17a7.963 7.963 0 01-1.636 4.813l.886.886a1 1 0 11-1.414 1.414l-.886-.886A7.963 7.963 0 0111 17.866V19a1 1 0 11-2 0v-1.134a7.963 7.963 0 01-3.913-2.543l-.886.886a1 1 0 11-1.414-1.414l.886-.886A7.963 7.963 0 013 12H1.866a1 1 0 110-2H3a7.963 7.963 0 011.636-4.813l-.886-.886a1 1 0 011.414-1.414l.886.886A7.963 7.963 0 019 4.134V3a1 1 0 011-1zM5 10a5 5 0 1110 0 5 5 0 01-10 0z" />
+                                        </svg>
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -135,8 +232,20 @@ const GeminiKids: React.FC = () => {
                         </div>
                      )}
                 </div>
-                <form onSubmit={handleChatSubmit} className="p-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
-                    <div className="flex items-center gap-2">
+                <div className="p-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold text-slate-500">Format obrazka:</span>
+                        {(['1:1', '16:9', '9:16'] as AspectRatio[]).map(ratio => (
+                            <button 
+                                key={ratio} 
+                                onClick={() => setAspectRatio(ratio)}
+                                className={`px-2.5 py-1 text-xs rounded-full ${aspectRatio === ratio ? 'bg-sky-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                            >
+                                {ratio}
+                            </button>
+                        ))}
+                    </div>
+                    <form onSubmit={handleChatSubmit} className="flex items-center gap-2">
                         <input
                             type="text"
                             value={input}
@@ -146,10 +255,10 @@ const GeminiKids: React.FC = () => {
                             disabled={isLoading}
                         />
                         <button type="submit" disabled={isLoading || !input.trim()} className="bg-sky-600 text-white p-3 rounded-lg hover:bg-sky-700 transition disabled:bg-slate-400">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="http://www.w3.org/2000/svg" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
                         </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
     );

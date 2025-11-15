@@ -25,6 +25,60 @@ const Dashboard: React.FC<DashboardProps> = ({ setView }) => {
           onClick={() => setView(View.GeminiKids)}
         />
         <Card
+          title={t('dashboard.cards.assistantConversation.title')}
+          description={t('dashboard.cards.assistantConversation.description')}
+          iconName="conversation"
+          onClick={() => setView(View.AssistantConversation)}
+        />
+        <Card
+          title={t('dashboard.cards.loyaltyProgram.title')}
+          description={t('dashboard.cards.loyaltyProgram.description')}
+          iconName="sticker"
+          onClick={() => setView(View.LoyaltyProgram)}
+        />
+         <Card
+          title={t('dashboard.cards.imageEditor.title')}
+          description={t('dashboard.cards.imageEditor.description')}
+          iconName="image_edit_auto"
+          onClick={() => setView(View.ImageEditor)}
+        />
+        <Card
+          title={t('dashboard.cards.videoGenerator.title')}
+          description={t('dashboard.cards.videoGenerator.description')}
+          iconName="video_spark"
+          onClick={() => setView(View.VideoGenerator)}
+        />
+        <Card
+          title={t('dashboard.cards.videoAnalyzer.title')}
+          description={t('dashboard.cards.videoAnalyzer.description')}
+          iconName="video_library"
+          onClick={() => setView(View.VideoAnalyzer)}
+        />
+        <Card
+          title={t('dashboard.cards.localResources.title')}
+          description={t('dashboard.cards.localResources.description')}
+          iconName="google_pin"
+          onClick={() => setView(View.LocalResources)}
+        />
+        <Card
+          title={t('dashboard.cards.strategyGuide.title')}
+          description={t('dashboard.cards.strategyGuide.description')}
+          iconName="strategy"
+          onClick={() => setView(View.StrategyGuide)}
+        />
+        <Card
+          title={t('dashboard.cards.dataAnalytics.title')}
+          description={t('dashboard.cards.dataAnalytics.description')}
+          iconName="analytics"
+          onClick={() => setView(View.DataAnalytics)}
+        />
+        <Card
+          title={t('dashboard.cards.drawingInterpreter.title')}
+          description={t('dashboard.cards.drawingInterpreter.description')}
+          iconName="drawing"
+          onClick={() => setView(View.DrawingInterpreter)}
+        />
+         <Card
           title={t('dashboard.cards.smartwatch.title')}
           description={t('dashboard.cards.smartwatch.description')}
           iconName="smartwatch"
@@ -37,34 +91,16 @@ const Dashboard: React.FC<DashboardProps> = ({ setView }) => {
           onClick={() => setView(View.AttentionHub)}
         />
         <Card
-          title={t('dashboard.cards.assistantConversation.title')}
-          description={t('dashboard.cards.assistantConversation.description')}
-          iconName="conversation"
-          onClick={() => setView(View.AssistantConversation)}
-        />
-        <Card
           title={t('dashboard.cards.dyadicRegulation.title')}
           description={t('dashboard.cards.dyadicRegulation.description')}
           iconName="dyadic"
           onClick={() => setView(View.DyadicRegulation)}
         />
         <Card
-          title={t('dashboard.cards.strategyGuide.title')}
-          description={t('dashboard.cards.strategyGuide.description')}
-          iconName="strategy"
-          onClick={() => setView(View.StrategyGuide)}
-        />
-        <Card
           title={t('dashboard.cards.escalationMonitor.title')}
           description={t('dashboard.cards.escalationMonitor.description')}
           iconName="escalation"
           onClick={() => setView(View.EscalationMonitor)}
-        />
-        <Card
-          title={t('dashboard.cards.drawingInterpreter.title')}
-          description={t('dashboard.cards.drawingInterpreter.description')}
-          iconName="drawing"
-          onClick={() => setView(View.DrawingInterpreter)}
         />
         <Card
           title={t('dashboard.cards.abcLogger.title')}
@@ -101,12 +137,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setView }) => {
           description={t('dashboard.cards.successJournal.description')}
           iconName="journal"
           onClick={() => setView(View.SuccessJournal)}
-        />
-        <Card
-          title={t('dashboard.cards.dataAnalytics.title')}
-          description={t('dashboard.cards.dataAnalytics.description')}
-          iconName="analytics"
-          onClick={() => setView(View.DataAnalytics)}
         />
         <Card
           title={t('dashboard.cards.progressTracker.title')}
