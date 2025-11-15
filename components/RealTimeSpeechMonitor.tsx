@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { analyzeLiveSpeechChunk } from '../services/geminiService';
 import { LiveSpeechAnalysis } from '../types';
@@ -64,14 +63,25 @@ const RealTimeSpeechMonitor: React.FC = () => {
     const recognitionRef = useRef<SpeechRecognition | null>(null);
     const analysisIntervalRef = useRef<number | null>(null);
     const transcriptChunkRef = useRef('');
+    
+    // Check for API support at the beginning of the component.
+    const isApiSupported = !!(typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition));
+
 
     useEffect(() => {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            setError('Twoja przeglądarka nie wspiera Web Speech API. Spróbuj użyć Google Chrome.');
+        // Only set up recognition if the API is supported and we are trying to listen.
+        if (!isApiSupported || !isListening) {
+            // Clean up if listening is stopped
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+            }
+            if (analysisIntervalRef.current) {
+                clearInterval(analysisIntervalRef.current);
+            }
             return;
         }
 
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
         recognition.continuous = true;
         recognition.interimResults = true;
@@ -104,12 +114,43 @@ const RealTimeSpeechMonitor: React.FC = () => {
         };
         
         recognition.onend = () => {
+            // The isListening state check prevents it from restarting after being manually stopped.
             if (isListening) {
                 recognition.start(); // Keep listening if it stops unexpectedly
             }
         };
 
         recognitionRef.current = recognition;
+        recognition.start(); // Start listening
+
+        // Start analysis interval
+        analysisIntervalRef.current = window.setInterval(async () => {
+            if (transcriptChunkRef.current.trim().length > 0) {
+                const chunkToAnalyze = transcriptChunkRef.current;
+                transcriptChunkRef.current = '';
+                try {
+                    const result = await analyzeLiveSpeechChunk(chunkToAnalyze);
+                    if(result && result.trim() !== '{}') {
+                       const parsedResult: LiveSpeechAnalysis = JSON.parse(result);
+                       setAnalysis(prev => {
+                           const newKeywords = [...new Set([...(prev.anxietyKeywords || []), ...(parsedResult.anxietyKeywords || [])])];
+                           const newRepetitions = [...new Set([...(prev.repetitions || []), ...(parsedResult.repetitions || [])])];
+                           return {
+                               ...prev,
+                               ...parsedResult,
+                               wordCount: (prev.wordCount || 0) + (parsedResult.wordCount || chunkToAnalyze.split(' ').length),
+                               questionCount: (prev.questionCount || 0) + (parsedResult.questionCount || 0),
+                               anxietyKeywords: newKeywords,
+                               repetitions: newRepetitions
+                           };
+                       });
+                    }
+                } catch (e) {
+                    console.error("Error parsing analysis result", e);
+                    setError('Wystąpił błąd podczas analizy danych.');
+                }
+            }
+        }, 5000); // Analyze every 5 seconds
 
         return () => {
             recognition.stop();
@@ -117,49 +158,40 @@ const RealTimeSpeechMonitor: React.FC = () => {
                 clearInterval(analysisIntervalRef.current);
             }
         };
-    }, [isListening]);
+    }, [isListening, isApiSupported]);
 
     const handleToggleListening = () => {
-        if (isListening) {
-            recognitionRef.current?.stop();
-            if (analysisIntervalRef.current) clearInterval(analysisIntervalRef.current);
-        } else {
+        if (!isApiSupported) return;
+
+        if (!isListening) {
+            // Reset state before starting
             setTranscript('');
             setInterimTranscript('');
             transcriptChunkRef.current = '';
             setAnalysis({});
             setError('');
-            recognitionRef.current?.start();
-            analysisIntervalRef.current = window.setInterval(async () => {
-                if (transcriptChunkRef.current.trim().length > 0) {
-                    const chunkToAnalyze = transcriptChunkRef.current;
-                    transcriptChunkRef.current = '';
-                    try {
-                        const result = await analyzeLiveSpeechChunk(chunkToAnalyze);
-                        if(result && result.trim() !== '{}') {
-                           const parsedResult: LiveSpeechAnalysis = JSON.parse(result);
-                           setAnalysis(prev => {
-                               const newKeywords = [...new Set([...(prev.anxietyKeywords || []), ...(parsedResult.anxietyKeywords || [])])];
-                               const newRepetitions = [...new Set([...(prev.repetitions || []), ...(parsedResult.repetitions || [])])];
-                               return {
-                                   ...prev,
-                                   ...parsedResult,
-                                   wordCount: (prev.wordCount || 0) + (parsedResult.wordCount || chunkToAnalyze.split(' ').length),
-                                   questionCount: (prev.questionCount || 0) + (parsedResult.questionCount || 0),
-                                   anxietyKeywords: newKeywords,
-                                   repetitions: newRepetitions
-                               };
-                           });
-                        }
-                    } catch (e) {
-                        console.error("Error parsing analysis result", e);
-                        setError('Wystąpił błąd podczas analizy danych.');
-                    }
-                }
-            }, 5000); // Analyze every 5 seconds
         }
-        setIsListening(!isListening);
+        setIsListening(prev => !prev);
     };
+    
+    if (!isApiSupported) {
+        return (
+            <div className="p-4 md:p-8 max-w-4xl mx-auto">
+                <h2 className="text-2xl font-bold text-slate-800 mb-1">Monitor Mowy na Żywo</h2>
+                <p className="text-slate-500 mb-6">Analizuj mowę w czasie rzeczywistym, aby wykrywać zmiany emocjonalne i poznawcze.</p>
+                <div className="bg-white p-6 rounded-2xl shadow-lg border border-amber-200">
+                    <h3 className="text-lg font-bold text-amber-700">Funkcja nieobsługiwana</h3>
+                    <p className="text-slate-600 mt-2">
+                        Twoja przeglądarka nie wspiera Web Speech API, która jest wymagana do działania tej funkcji. 
+                        Chociaż funkcja ta nie jest specyficzna dla systemu Windows, jej dostępność zależy od przeglądarki.
+                    </p>
+                    <p className="text-slate-600 mt-2">
+                        Dla najlepszego doświadczenia, rekomendujemy korzystanie z przeglądarki Google Chrome na komputerze lub urządzeniu z systemem Android.
+                    </p>
+                </div>
+            </div>
+        );
+    }
     
     const Indicator: React.FC<{ label: string; value: string | number | undefined; className?: string }> = ({ label, value, className }) => (
         <div className={`bg-slate-100 p-3 rounded-lg ${className}`}>
