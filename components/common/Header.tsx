@@ -2,6 +2,8 @@
 import React from 'react';
 import { View } from '../../types';
 import Icon from './Icon';
+import LanguageSelector from './LanguageSelector';
+import { useTranslation } from '../../hooks/useTranslation';
 
 interface HeaderProps {
     currentView: View;
@@ -9,6 +11,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ currentView, setView }) => {
+    const { t } = useTranslation();
     return (
         <header className="bg-white shadow-md sticky top-0 z-10">
             <div className="container mx-auto px-4 py-3 flex items-center justify-between">
@@ -17,7 +20,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, setView }) => {
                         <button
                             onClick={() => setView(View.Dashboard)}
                             className="text-slate-600 hover:text-sky-600 p-2 rounded-full hover:bg-slate-100 transition-colors"
-                            aria-label="Powrót do panelu"
+                            aria-label={t('header.back_aria_label')}
                         >
                             <Icon name="back" />
                         </button>
@@ -26,8 +29,8 @@ const Header: React.FC<HeaderProps> = ({ currentView, setView }) => {
                         PAS<span className="font-light text-slate-500">i</span>R
                     </h1>
                 </div>
-                <div>
-                   {/* Placeholder for future actions */}
+                <div className="flex items-center space-x-2">
+                   <LanguageSelector />
                 </div>
             </div>
         </header>

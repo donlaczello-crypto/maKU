@@ -22,10 +22,12 @@ import DyadicRegulation from './components/DyadicRegulation';
 import AttentionHub from './components/AttentionHub';
 import GeminiKids from './components/GeminiKids';
 import Smartwatch from './components/Smartwatch';
+import { useTranslation } from './hooks/useTranslation';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   const [linkedDrawingData, setLinkedDrawingData] = useState<LinkedDrawingData | null>(null);
+  const { t } = useTranslation();
 
   const handleLinkToABC = (data: LinkedDrawingData) => {
     setLinkedDrawingData(data);
@@ -82,8 +84,8 @@ const App: React.FC = () => {
       case View.ProgressTracker:
         return (
             <div className="p-4 md:p-8 max-w-4xl mx-auto text-center">
-                <h2 className="text-2xl font-bold text-slate-800 mb-1">Moje Postępy</h2>
-                <p className="text-slate-500 mt-4">Wkrótce tutaj znajdziesz wizualizacje postępów i ścieżki rozwoju dziecka na podstawie zebranych danych.</p>
+                <h2 className="text-2xl font-bold text-slate-800 mb-1">{t('progressTracker.title')}</h2>
+                <p className="text-slate-500 mt-4">{t('progressTracker.description')}</p>
             </div>
         );
       default:
@@ -98,7 +100,7 @@ const App: React.FC = () => {
         {renderView()}
       </main>
       <footer className="text-center p-4 text-slate-400 text-xs">
-        <p>Dla Marysi i Kuby, z bezgraniczną miłością od Mamy. Pamiętajcie, jesteście wyjątkowi i możecie zdobyć cały świat. To dar, byście zawsze czuli się bezpiecznie.</p>
+        <p>{t('footer.dedication')}</p>
       </footer>
     </div>
   );

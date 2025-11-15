@@ -1,6 +1,9 @@
+
 import React from 'react';
+import { useTranslation } from '../../hooks/useTranslation';
 
 const ConfidentialDataWarning: React.FC = () => {
+    const { t } = useTranslation();
     return (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 my-4 rounded-r-lg">
             <div className="flex">
@@ -11,7 +14,7 @@ const ConfidentialDataWarning: React.FC = () => {
                 </div>
                 <div className="ml-3">
                     <p className="text-sm text-yellow-700">
-                        Prosimy nie wprowadzać żadnych danych wrażliwych ani informacji umożliwiających identyfikację (imiona, nazwiska). Opisuj sytuacje w sposób ogólny. Wszystkie dane pozostają wyłącznie w aplikacji i nie są nigdzie wysyłane.
+                        {t('common.confidential_warning')}
                     </p>
                 </div>
             </div>
