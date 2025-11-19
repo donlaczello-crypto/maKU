@@ -1,7 +1,7 @@
 import { useContext } from 'react';
 import { LanguageContext } from '../context/LanguageContext';
-import pl from '../locales/pl.ts';
-import en from '../locales/en.ts';
+import pl from '../locales/pl';
+import en from '../locales/en';
 
 const translations = { pl, en };
 
@@ -23,15 +23,15 @@ export const useTranslation = () => {
 
   const { language, setLanguage } = context;
 
-  // FIX: Updated the `t` function to handle interpolation for dynamic values.
-  const t = (key: string, options?: { [key: string]: string | number }): string => {
+  // FIX: Updated the `t` function to handle non-string return types (like arrays of objects) and interpolation for strings.
+  const t = (key: string, options?: { [key: string]: string | number }): any => {
     const translation = getNestedTranslation(translations[language], key);
 
-    if (typeof translation !== 'string') {
-        return key; // Return key if translation not found or is not a string
+    if (translation === undefined) {
+        return key; // Return key if translation not found
     }
 
-    if (options) {
+    if (typeof translation === 'string' && options) {
         let result = translation;
         for (const [optionKey, value] of Object.entries(options)) {
             const regex = new RegExp(`{${optionKey}}`, 'g');

@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getSupportStrategyStream } from '../services/geminiService';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
+import { renderMarkdownSafe } from '../utils/markdown';
 
 interface GroundingChunk {
     web: {
@@ -15,19 +16,7 @@ const StrategyGuide: React.FC = () => {
     const [strategy, setStrategy] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const [isComplete, setIsComplete] = useState(false);
     const [sources, setSources] = useState<GroundingChunk[]>([]);
-
-    useEffect(() => {
-        if (isComplete && strategy) {
-            const formattedResult = strategy
-                .replace(/### (.*?)(?:\n|$)/g, '<h3 class="text-lg font-bold text-sky-700 mt-4 mb-2">$1</h3>')
-                .replace(/\* (.*?)(?:\n|$)/g, '<li class="ml-4 list-disc">$1</li>')
-                .replace(/\n/g, '<br/>');
-            setStrategy(formattedResult);
-        }
-    }, [isComplete, strategy]);
-
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,13 +26,13 @@ const StrategyGuide: React.FC = () => {
         }
         setError('');
         setIsLoading(true);
-        setIsComplete(false);
         setStrategy('');
         setSources([]);
 
         try {
             const stream = await getSupportStrategyStream(situation);
             let firstChunk = true;
+            let fullText = "";
             for await (const chunk of stream) {
                  if (firstChunk) {
                     const metadata = chunk.candidates?.[0]?.groundingMetadata;
@@ -52,13 +41,13 @@ const StrategyGuide: React.FC = () => {
                     }
                     firstChunk = false;
                 }
-                setStrategy(prev => prev + chunk.text);
+                fullText += chunk.text;
+                setStrategy(fullText);
             }
         } catch (err) {
             setError('Wystąpił błąd podczas generowania strategii.');
         } finally {
             setIsLoading(false);
-            setIsComplete(true);
         }
     };
     
@@ -95,7 +84,7 @@ const StrategyGuide: React.FC = () => {
             {(strategy) && (
                 <div className="mt-8 bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
                      <h2 className="text-xl font-bold text-slate-800 mb-4">Twoje spersonalizowane strategie</h2>
-                     <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: strategy }} />
+                     <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={renderMarkdownSafe(strategy)} />
                      {sources.length > 0 && (
                         <div className="mt-6 pt-4 border-t border-slate-200">
                             <h4 className="font-semibold text-slate-600 text-sm mb-2">Źródła:</h4>

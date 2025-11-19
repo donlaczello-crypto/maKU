@@ -6,9 +6,9 @@ import { AttentionConcentrator } from '../types';
 const goals = ["Przygotowanie do nauki", "Wyciszenie po przedszkolu", "Chwila zabawy sensorycznej"];
 const sensoryNeeds = ["Potrzebuję stymulacji (więcej energii)", "Potrzebuję wyciszenia (mniej energii)"];
 const sounds = [
-    { name: 'Deszcz', src: 'https://www.soundjay.com/nature/rain-07.mp3' },
-    { name: 'Las', src: 'https://www.soundjay.com/nature/forest-1.mp3' },
-    { name: 'Fale', src: 'https://www.soundjay.com/nature/ocean-wave-1.mp3' },
+    { name: 'Deszcz', src: 'https://cdn.pixabay.com/audio/2022/08/18/audio_29325983d5.mp3' },
+    { name: 'Las', src: 'https://cdn.pixabay.com/audio/2022/02/01/audio_eb7218fed0.mp3' },
+    { name: 'Fale', src: 'https://cdn.pixabay.com/audio/2023/09/20/audio_557e45c711.mp3' },
 ];
 
 const AttentionHub: React.FC = () => {
@@ -91,7 +91,7 @@ const AttentionHub: React.FC = () => {
 
     return (
         <div className="p-4 md:p-8 max-w-4xl mx-auto">
-            <h2 className="text-2xl font-bold text-slate-800 mb-1">Gemini Kids: Strefa Skupienia</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-1">Strefa Skupienia</h2>
             <p className="text-slate-500 mb-6">Interaktywne środowisko, które pomaga dziecku w regulacji i koncentracji.</p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

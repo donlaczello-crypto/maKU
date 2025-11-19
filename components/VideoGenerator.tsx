@@ -1,14 +1,17 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { generateVideo, getVideosOperation } from '../services/geminiService';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
 
 type GenerationMode = 'text' | 'image';
 type AspectRatio = '16:9' | '9:16';
 
-// FIX: Removed conflicting global declaration for window.aistudio.
-// The types are assumed to be provided globally.
+// Interface for the AIStudio object on window
+interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+    apiKey?: string;
+}
 
 const VideoGenerator: React.FC = () => {
     const [mode, setMode] = useState<GenerationMode>('text');
@@ -24,15 +27,15 @@ const VideoGenerator: React.FC = () => {
 
     useEffect(() => {
         const checkApiKey = async () => {
-            if (window.aistudio) {
-                const hasKey = await window.aistudio.hasSelectedApiKey();
+            const aistudio = (window as any).aistudio as AIStudio | undefined;
+            if (aistudio) {
+                const hasKey = await aistudio.hasSelectedApiKey();
                 setApiKeySelected(hasKey);
             }
         };
         checkApiKey();
     }, []);
 
-    // FIX: Changed 'operation' parameter type to 'any' to accept the full operation object.
     const pollOperation = async (operation: any) => {
         setStatusMessage('Zadanie zostało wysłane. Oczekiwanie na rozpoczęcie przetwarzania...');
         while (true) {
@@ -41,7 +44,21 @@ const VideoGenerator: React.FC = () => {
                 if (updatedOperation.done) {
                     const downloadLink = updatedOperation.response?.generatedVideos?.[0]?.video?.uri;
                     if (downloadLink) {
-                        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+                        // FIX: Use the correct API key for fetching the video.
+                        // If the user selected a key via aistudio, we should use it (or prompt again/handle it).
+                        // Since we can't easily get the key string back from aistudio helper if it's hidden,
+                        // we rely on the fact that for Veo we need to pass it.
+                        // However, the aistudio helper usually injects it or handles it.
+                        // If we assume window.aistudio.apiKey is accessible (it often is in these environments), we use it.
+                        // Otherwise fall back to process.env.API_KEY.
+                        const aistudio = (window as any).aistudio as AIStudio | undefined;
+                        const apiKey = aistudio?.apiKey || process.env.API_KEY;
+                        const response = await fetch(`${downloadLink}&key=${apiKey}`);
+                        
+                        if (!response.ok) {
+                            throw new Error(`Błąd pobierania wideo: ${response.statusText}`);
+                        }
+                        
                         const blob = await response.blob();
                         setVideoUrl(URL.createObjectURL(blob));
                         setStatusMessage('Wideo wygenerowane pomyślnie!');
@@ -117,8 +134,9 @@ const VideoGenerator: React.FC = () => {
     };
     
     const handleSelectKey = async () => {
-        if(window.aistudio) {
-            await window.aistudio.openSelectKey();
+        const aistudio = (window as any).aistudio as AIStudio | undefined;
+        if(aistudio) {
+            await aistudio.openSelectKey();
             // Assume success to avoid race condition
             setApiKeySelected(true);
         }

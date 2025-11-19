@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sticker, FamilyActivity } from '../types';
 import { useTranslation } from '../hooks/useTranslation';
 import { generateStickerImage, generateFamilyActivity } from '../services/geminiService';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 import { useTimeBasedTheme } from '../hooks/useTimeBasedTheme';
 
 // Custom hook for simplified state management with localStorage
@@ -37,10 +38,10 @@ const LoyaltyProgram: React.FC = () => {
     const { t } = useTranslation();
     const { greeting } = useTimeBasedTheme();
     
-    const [stickers, setStickers] = useLocalStorage<Sticker[]>('pasir_stickers', []);
-    const [lastEarnedDate, setLastEarnedDate] = useLocalStorage<string | null>('pasir_lastEarnedDate', null);
-    const [printHistory, setPrintHistory] = useLocalStorage<Record<string, string>>('pasir_printHistory', {});
-    const [familyActivity, setFamilyActivity] = useLocalStorage<FamilyActivity | null>('pasir_familyActivity', null);
+    const [stickers, setStickers] = useLocalStorage<Sticker[]>('mypoint_stickers', []);
+    const [lastEarnedDate, setLastEarnedDate] = useLocalStorage<string | null>('mypoint_lastEarnedDate', null);
+    const [printHistory, setPrintHistory] = useLocalStorage<Record<string, string>>('mypoint_printHistory', {});
+    const [familyActivity, setFamilyActivity] = useLocalStorage<FamilyActivity | null>('mypoint_familyActivity', null);
     
     const [isLoadingSticker, setIsLoadingSticker] = useState(false);
     const [isLoadingActivity, setIsLoadingActivity] = useState(false);

@@ -1,6 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getComplexDataAnalysis } from '../services/geminiService';
+import { Chart, registerables } from 'chart.js/auto';
+
+// Register Chart.js components
+Chart.register(...registerables);
 
 interface AnalysisData {
   prediction: {
@@ -16,10 +20,42 @@ interface AnalysisData {
   escalationPaths: { path: string[]; count: number }[];
 }
 
+// Visual component for risk level
+const RiskGauge: React.FC<{ level: 'Niskie' | 'Umiarkowane' | 'Wysokie' }> = ({ level }) => {
+    const riskMeta = {
+        'Niskie': { angle: -60, color: 'text-teal-500' },
+        'Umiarkowane': { angle: 0, color: 'text-amber-500' },
+        'Wysokie': { angle: 60, color: 'text-red-500' },
+    };
+    const { angle, color } = riskMeta[level];
+
+    return (
+        <div className="flex flex-col items-center">
+            <div className="relative w-48 h-24">
+                <svg viewBox="0 0 100 50" className="w-full h-full">
+                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#e2e8f0" strokeWidth="10" />
+                    <path d="M 10 50 A 40 40 0 0 1 30 15.36" fill="none" stroke="#14b8a6" strokeWidth="10" />
+                    <path d="M 30 15.36 A 40 40 0 0 1 70 15.36" fill="none" stroke="#f59e0b" strokeWidth="10" />
+                    <path d="M 70 15.36 A 40 40 0 0 1 90 50" fill="none" stroke="#ef4444" strokeWidth="10" />
+                </svg>
+                <div 
+                    className="absolute bottom-0 left-1/2 w-0.5 h-1/2 bg-slate-700 origin-bottom transition-transform duration-700 ease-out" 
+                    style={{ transform: `translateX(-50%) rotate(${angle}deg)` }}
+                ></div>
+                <div className="absolute bottom-0 left-1/2 w-4 h-4 bg-slate-700 rounded-full -translate-x-1/2 translate-y-1/2"></div>
+            </div>
+            <p className={`text-2xl font-bold mt-2 ${color}`}>{level}</p>
+        </div>
+    );
+};
+
+
 const DataAnalytics: React.FC = () => {
   const [data, setData] = useState<AnalysisData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const escalationChartRef = useRef<HTMLCanvasElement>(null);
+  const chartInstanceRef = useRef<Chart | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -40,10 +76,71 @@ const DataAnalytics: React.FC = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (chartInstanceRef.current) {
+        chartInstanceRef.current.destroy();
+    }
+    
+    if (data?.escalationPaths && escalationChartRef.current) {
+        const ctx = escalationChartRef.current.getContext('2d');
+        if (ctx) {
+            const sortedPaths = [...data.escalationPaths].sort((a, b) => a.count - b.count);
+            
+            chartInstanceRef.current = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedPaths.map(p => p.path.join(' → ')),
+                    datasets: [{
+                        label: 'Liczba wystąpień',
+                        data: sortedPaths.map(p => p.count),
+                        backgroundColor: 'rgba(14, 165, 233, 0.6)',
+                        borderColor: 'rgba(14, 165, 233, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (tooltipItems) => tooltipItems[0].label.replaceAll(' → ', '\n→ ')
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        },
+                        y: {
+                           ticks: {
+                                autoSkip: false,
+                                font: {
+                                    size: 10
+                                }
+                           }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    return () => {
+        if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+        }
+    };
+  }, [data]);
+
   const getIntensityColor = (intensity: number, max: number = 5) => {
     if (intensity === 0) return 'bg-slate-100';
-    const opacity = intensity / max;
-    return `bg-sky-500`;
+    return `bg-sky-500`; // Always use sky, control with opacity
   };
 
   if (isLoading) {
@@ -62,14 +159,6 @@ const DataAnalytics: React.FC = () => {
   if (!data) {
     return <div className="p-4 md:p-8 max-w-6xl mx-auto text-center text-slate-500">Brak danych do wyświetlenia.</div>;
   }
-  
-  const getRiskColor = (level: 'Niskie' | 'Umiarkowane' | 'Wysokie') => {
-    switch(level) {
-        case 'Wysokie': return 'text-red-600 bg-red-100';
-        case 'Umiarkowane': return 'text-amber-600 bg-amber-100';
-        default: return 'text-teal-600 bg-teal-100';
-    }
-  }
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
@@ -77,24 +166,21 @@ const DataAnalytics: React.FC = () => {
       <p className="text-slate-500 mb-8">Odkrywaj wzorce, aby lepiej rozumieć i proaktywnie wspierać dziecko.</p>
       
       <div className="space-y-8">
-        {/* Prediction Engine */}
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-            <h3 className="text-lg font-bold text-sky-700 mb-4">Prognoza na 24h (Prediction Engine)</h3>
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+            <h3 className="text-lg font-bold text-sky-700 mb-4 text-center">Prognoza na 24h (Prediction Engine)</h3>
+            <div className="flex flex-col md:flex-row items-center gap-8">
                 <div className="flex-1">
-                    <p className="text-slate-600">Szacowane ryzyko trudnych zachowań:</p>
-                    <p className={`text-2xl font-bold my-1 px-3 py-1 rounded-md inline-block ${getRiskColor(data.prediction.riskLevel)}`}>{data.prediction.riskLevel}</p>
+                    <RiskGauge level={data.prediction.riskLevel} />
                 </div>
                 <div className="flex-1 w-full">
-                     <p className="font-semibold text-slate-700">Kluczowe czynniki do obserwacji:</p>
-                     <ul className="list-disc pl-5 text-slate-500 text-sm mt-1 space-y-1">
+                     <p className="font-semibold text-slate-700 text-center md:text-left">Kluczowe czynniki do obserwacji:</p>
+                     <ul className="list-disc pl-5 text-slate-500 text-sm mt-2 space-y-1">
                         {data.prediction.factors.map(f => <li key={f}>{f}</li>)}
                      </ul>
                 </div>
             </div>
         </div>
 
-        {/* Temporal Patterns Heatmap */}
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
             <h3 className="text-lg font-bold text-sky-700 mb-4">Mapa Ciepła Wzorców Czasowych</h3>
             <div className="grid grid-cols-8 gap-1 text-center text-xs font-semibold">
@@ -107,18 +193,27 @@ const DataAnalytics: React.FC = () => {
                         {[...Array(7)].map((_, dayIdx) => {
                             const heatmapCell = data.heatmapData.find(d => d.day === dayIdx && d.time === timeIdx);
                             const intensity = heatmapCell ? heatmapCell.intensity : 0;
-                            const color = getIntensityColor(intensity, 5);
+                            const color = getIntensityColor(intensity);
                             const opacity = intensity === 0 ? 1 : 0.2 + (intensity / 5) * 0.8;
                              return <div key={`${dayIdx}-${timeIdx}`} className={`h-10 rounded ${color}`} style={{ opacity: opacity }} title={`Zdarzenia: ${intensity}`}></div>
                         })}
                     </React.Fragment>
                 ))}
             </div>
-            <p className="text-xs text-slate-400 mt-2 text-center">Im ciemniejszy kolor, tym większa częstotliwość zarejestrowanych zdarzeń.</p>
+             <div className="flex justify-end items-center mt-2 text-xs text-slate-400 gap-4">
+                <span>Mniej zdarzeń</span>
+                <div className="flex">
+                    <div className="w-4 h-4 rounded-sm bg-sky-500 opacity-20"></div>
+                    <div className="w-4 h-4 rounded-sm bg-sky-500 opacity-40"></div>
+                    <div className="w-4 h-4 rounded-sm bg-sky-500 opacity-60"></div>
+                    <div className="w-4 h-4 rounded-sm bg-sky-500 opacity-80"></div>
+                    <div className="w-4 h-4 rounded-sm bg-sky-500 opacity-100"></div>
+                </div>
+                <span>Więcej zdarzeń</span>
+            </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Correlation Analysis */}
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
                 <h3 className="text-lg font-bold text-sky-700 mb-4">Analiza Korelacji: Poprzednik → Zachowanie</h3>
                 <div className="overflow-x-auto">
@@ -126,46 +221,42 @@ const DataAnalytics: React.FC = () => {
                          <thead>
                             <tr>
                                 <th className="p-2"></th>
-                                {data.correlationData.behaviors.map(b => <th key={b} className="p-2 font-bold text-sky-800 text-center">{b}</th>)}
+                                {data.correlationData.behaviors.map(b => <th key={b} className="p-2 font-bold text-sky-800 text-center text-xs whitespace-nowrap">{b}</th>)}
                             </tr>
                         </thead>
                         <tbody>
                             {data.correlationData.antecedents.map((a, aIdx) => (
                                 <tr key={a} className="border-t border-slate-200">
-                                    <td className="p-2 font-bold text-sky-800">{a}</td>
+                                    <td className="p-2 font-bold text-sky-800 text-xs">{a}</td>
                                     {data.correlationData.matrix[aIdx].map((val, bIdx) => {
-                                        const opacity = val === 0 ? 0.1 : 0.2 + (val/5) * 0.8;
-                                        return <td key={bIdx} className="p-2 text-center"><div className="w-10 h-10 rounded-lg bg-amber-500 mx-auto" style={{ opacity: opacity }} title={`Siła korelacji: ${val}`}></div></td>
+                                        const opacity = val === 0 ? 0.05 : 0.15 + (val/5) * 0.85;
+                                        return <td key={bIdx} className="p-2 text-center"><div className="w-8 h-8 rounded-lg bg-amber-500 mx-auto transition-opacity" style={{ opacity: opacity }} title={`Siła korelacji: ${val}`}></div></td>
                                     })}
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
-                 <p className="text-xs text-slate-400 mt-2 text-center">Im ciemniejszy kolor, tym silniejszy związek między poprzednikiem a zachowaniem.</p>
+                 <div className="flex justify-end items-center mt-2 text-xs text-slate-400 gap-4">
+                    <span>Słaba korelacja</span>
+                    <div className="flex">
+                        <div className="w-4 h-4 rounded-sm bg-amber-500 opacity-20"></div>
+                        <div className="w-4 h-4 rounded-sm bg-amber-500 opacity-40"></div>
+                        <div className="w-4 h-4 rounded-sm bg-amber-500 opacity-60"></div>
+                        <div className="w-4 h-4 rounded-sm bg-amber-500 opacity-80"></div>
+                        <div className="w-4 h-4 rounded-sm bg-amber-500 opacity-100"></div>
+                    </div>
+                    <span>Silna korelacja</span>
+                </div>
             </div>
 
-            {/* Escalation Sequences */}
-            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 flex flex-col">
                  <h3 className="text-lg font-bold text-sky-700 mb-4">Najczęstsze Sekwencje Eskalacji</h3>
-                 <div className="space-y-3">
-                    {data.escalationPaths.map((item, index) => (
-                        <div key={index} className="bg-slate-50 p-3 rounded-lg">
-                            <div className="flex items-center space-x-2 text-sm text-slate-700 flex-wrap">
-                                {item.path.map((step, stepIdx) => (
-                                    <React.Fragment key={stepIdx}>
-                                        <span>{step}</span>
-                                        {stepIdx < item.path.length - 1 && <span className="text-sky-500 font-bold">→</span>}
-                                    </React.Fragment>
-                                ))}
-                            </div>
-                            <p className="text-xs text-slate-500 text-right mt-1">Liczba wystąpień: {item.count}</p>
-                        </div>
-                    ))}
+                 <div className="relative flex-1 min-h-[250px]">
+                    <canvas ref={escalationChartRef}></canvas>
                  </div>
             </div>
         </div>
-
       </div>
     </div>
   );

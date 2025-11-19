@@ -2,9 +2,9 @@
 import React, { useState } from 'react';
 import { getRiskFactorAnalysis } from '../services/geminiService';
 import { RiskAlert } from '../types';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 
-const EarlyWarningSystem: React.FC = () => {
+export const EarlyWarningSystem: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [alerts, setAlerts] = useState<RiskAlert[]>([]);

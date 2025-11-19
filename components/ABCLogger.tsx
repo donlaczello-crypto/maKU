@@ -1,22 +1,23 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { RegulationState, LinkedDrawingData } from '../types';
-import Icon from './common/Icon';
+import { RegulationState, LinkedDrawingData, ABCEvent } from '../types';
+import { Icon } from './common/Icon';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
 
-const commonAntecedents = ["Zmiana rutyny", "Bodźce sensoryczne (np. hałas)", "Odmowa/Zakaz", "Polecenie/Prośba", "Nuda", "Zmęczenie", "Głód"];
+const commonAntecedents = ["Zmiana rutyny", "Bodźce sensoryczne (np. hałas)", "Odmowa/Zakaz", "Polecenie/Prośba", "Nuda", "Zmęczenie", "Głód", "Przejście/zmiana aktywności", "Frustracja zadaniem", "Interakcja z rówieśnikiem", "Przemęczenie", "Nagła zmiana planów"];
 const commonConsequences = ["Uwaga dorosłego", "Otrzymanie przedmiotu", "Ucieczka od zadania", "Naturalna konsekwencja", "Brak reakcji"];
 
 interface ABCLoggerProps {
     linkedDrawing: LinkedDrawingData | null;
     onClearLinkedDrawing: () => void;
+    onAddEvent: (event: Omit<ABCEvent, 'id' | 'timestamp'>) => void;
 }
 
-const ABCLogger: React.FC<ABCLoggerProps> = ({ linkedDrawing, onClearLinkedDrawing }) => {
+const ABCLogger: React.FC<ABCLoggerProps> = ({ linkedDrawing, onClearLinkedDrawing, onAddEvent }) => {
   const [behaviorName, setBehaviorName] = useState('');
   const [count, setCount] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isActive, setIsActive] = useState(false);
-  // Fix: In a browser environment, setInterval returns a number, not a NodeJS.Timeout object.
   const timerRef = useRef<number | null>(null);
 
   const [selectedAntecedents, setSelectedAntecedents] = useState<string[]>([]);
@@ -68,13 +69,16 @@ const ABCLogger: React.FC<ABCLoggerProps> = ({ linkedDrawing, onClearLinkedDrawi
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, this would save to a database or state management store
-    console.log({
-        behaviorName, count, duration,
-        antecedents: [...selectedAntecedents, customAntecedent].filter(Boolean),
+    onAddEvent({
+        antecedent: [...selectedAntecedents, customAntecedent].filter(Boolean),
+        behavior: {
+            name: behaviorName,
+            count: count,
+            durationSeconds: duration,
+        },
         consequence: customConsequence || selectedConsequence,
-        regulationState, triggers,
-        linkedDrawing,
+        regulationState: regulationState,
+        triggers: triggers.split(',').map(t => t.trim()).filter(Boolean),
     });
     alert("Zdarzenie zapisane!");
     // Reset form
@@ -110,129 +114,90 @@ const ABCLogger: React.FC<ABCLoggerProps> = ({ linkedDrawing, onClearLinkedDrawi
       
       <form onSubmit={handleSubmit} className="space-y-8">
         <ConfidentialDataWarning />
-
+        
         {linkedDrawing && (
-            <div className="bg-white p-6 rounded-2xl shadow-lg border-2 border-sky-200">
+            <div className="bg-sky-50 border-l-4 border-sky-400 p-4 rounded-r-lg">
                 <div className="flex justify-between items-start">
-                    <h3 className="text-lg font-bold text-sky-700 mb-4">Połączona Analiza Rysunku</h3>
-                    <button type="button" onClick={onClearLinkedDrawing} className="text-sm text-red-500 hover:underline flex-shrink-0">
-                        Odłącz
-                    </button>
-                </div>
-                <div className="flex items-start gap-4">
-                    <img src={`data:image/jpeg;base64,${linkedDrawing.imageBase64}`} alt="Połączony rysunek" className="w-24 h-24 rounded-lg object-cover border" />
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-600 font-semibold">Kontekst:</p>
-                        <p className="text-sm text-slate-500 mb-2 italic truncate">"{linkedDrawing.context}"</p>
-                        <p className="text-sm text-slate-600 font-semibold">Analiza (fragment):</p>
-                        <p className="text-sm text-slate-500">{linkedDrawing.analysis.length > 150 ? `${linkedDrawing.analysis.substring(0, 150)}...` : linkedDrawing.analysis}</p>
+                    <div>
+                        <p className="font-bold text-sky-800">Dołączono analizę rysunku</p>
+                        <p className="text-sm text-slate-600 italic mt-1">"{linkedDrawing.context}"</p>
                     </div>
+                    <button type="button" onClick={onClearLinkedDrawing} className="text-slate-500 hover:text-red-600">
+                        <Icon name="trash" />
+                    </button>
                 </div>
             </div>
         )}
 
-        {/* Behavior */}
+        {/* ANTECEDENT */}
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-          <h3 className="text-lg font-bold text-sky-700 mb-4">B: Zachowanie (Behavior)</h3>
-          <p className="text-sm text-slate-500 mb-4">Co się wydarzyło? Opisz zachowanie, policz wystąpienia i zmierz czas trwania.</p>
-          <input
-            type="text"
-            value={behaviorName}
-            onChange={(e) => setBehaviorName(e.target.value)}
-            placeholder="Np. krzyk, rzucanie przedmiotem"
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
-            required
-          />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="flex flex-col items-center justify-center bg-slate-50 p-4 rounded-lg">
-                <span className="text-3xl font-bold text-slate-700">{count}</span>
-                <span className="text-sm text-slate-500 mb-2">Licznik One-Tap</span>
-                <button type="button" onClick={() => setCount(c => c + 1)} className="w-full bg-sky-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-sky-600 transition flex items-center justify-center"><Icon name="plus"/> Zwiększ</button>
+            <h3 className="text-lg font-bold text-sky-700 mb-4">A: Poprzednik (Co się stało tuż przed?)</h3>
+            <div className="flex flex-wrap gap-2">
+                {commonAntecedents.map(a => (
+                    <button type="button" key={a} onClick={() => handleAntecedentToggle(a)} className={`px-3 py-1.5 text-sm rounded-full transition ${selectedAntecedents.includes(a) ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}>{a}</button>
+                ))}
             </div>
-            <div className="flex flex-col items-center justify-center bg-slate-50 p-4 rounded-lg">
-                <span className="text-3xl font-bold text-slate-700">{formatTime(duration)}</span>
-                <span className="text-sm text-slate-500 mb-2">Czas trwania</span>
-                <div className="flex w-full space-x-2">
-                    <button type="button" onClick={handleToggleTimer} className={`w-full font-bold py-2 px-4 rounded-lg transition ${isActive ? 'bg-amber-500 hover:bg-amber-600' : 'bg-teal-500 hover:bg-teal-600'} text-white`}>
-                        {isActive ? 'Pauza' : 'Start'}
-                    </button>
-                    <button type="button" onClick={handleReset} className="w-full bg-slate-300 text-slate-700 font-bold py-2 px-4 rounded-lg hover:bg-slate-400 transition">Reset</button>
+            <textarea value={customAntecedent} onChange={e => setCustomAntecedent(e.target.value)} placeholder="Inny, niestandardowy poprzednik..." className="w-full mt-4 p-3 border border-slate-300 rounded-lg h-20 focus:ring-2 focus:ring-sky-500"></textarea>
+        </div>
+
+        {/* BEHAVIOR */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+            <h3 className="text-lg font-bold text-sky-700 mb-4">B: Zachowanie (Co zrobiło dziecko?)</h3>
+            <input type="text" value={behaviorName} onChange={e => setBehaviorName(e.target.value)} placeholder="Opisz zachowanie, np. 'Krzyk'" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500" required />
+            <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Ilość wystąpień</label>
+                    <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => setCount(c => Math.max(0, c - 1))} className="p-2 bg-slate-200 rounded-full">-</button>
+                        <span className="font-bold text-lg w-12 text-center">{count}</span>
+                        <button type="button" onClick={() => setCount(c => c + 1)} className="p-2 bg-slate-200 rounded-full">+</button>
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Czas trwania</label>
+                    <div className="flex items-center gap-2">
+                        <span className="font-mono text-xl">{formatTime(duration)}</span>
+                        <button type="button" onClick={handleToggleTimer} className={`px-3 py-1 rounded-full text-white ${isActive ? 'bg-red-500' : 'bg-green-500'}`}>{isActive ? 'Stop' : 'Start'}</button>
+                        <button type="button" onClick={handleReset} className="p-2 bg-slate-200 rounded-full text-xs">Reset</button>
+                    </div>
                 </div>
             </div>
-          </div>
-        </div>
-
-        {/* Antecedent */}
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-          <h3 className="text-lg font-bold text-sky-700 mb-4">A: Poprzednik (Antecedent)</h3>
-          <p className="text-sm text-slate-500 mb-4">Co wydarzyło się tuż przed zachowaniem?</p>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {commonAntecedents.map(a => (
-                <button type="button" key={a} onClick={() => handleAntecedentToggle(a)} className={`px-3 py-1.5 text-sm rounded-full transition ${selectedAntecedents.includes(a) ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}>{a}</button>
-            ))}
-          </div>
-          <input type="text" value={customAntecedent} onChange={e => setCustomAntecedent(e.target.value)} placeholder="Inny poprzednik..." className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition" />
         </div>
         
-        {/* Consequence */}
+        {/* CONSEQUENCE */}
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-          <h3 className="text-lg font-bold text-sky-700 mb-4">C: Konsekwencja (Consequence)</h3>
-          <p className="text-sm text-slate-500 mb-4">Co wydarzyło się tuż po zachowaniu?</p>
-          <div className="flex flex-wrap gap-2 mb-4">
-              {commonConsequences.map(c => (
-                  <button type="button" key={c} onClick={() => setSelectedConsequence(c)} className={`px-3 py-1.5 text-sm rounded-full transition ${selectedConsequence === c ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}>{c}</button>
-              ))}
-          </div>
-          <input type="text" value={customConsequence} onChange={e => setCustomConsequence(e.target.value)} placeholder="Inna konsekwencja..." className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition" />
+            <h3 className="text-lg font-bold text-sky-700 mb-4">C: Konsekwencja (Co się stało zaraz po?)</h3>
+            <div className="space-y-2">
+                {commonConsequences.map(c => (
+                    <label key={c} className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg">
+                        <input type="radio" name="consequence" value={c} checked={selectedConsequence === c} onChange={(e) => setSelectedConsequence(e.target.value)} className="focus:ring-sky-500 h-4 w-4 text-sky-600 border-slate-300" />
+                        <span>{c}</span>
+                    </label>
+                ))}
+            </div>
+            <textarea value={customConsequence} onChange={e => setCustomConsequence(e.target.value)} placeholder="Inna, niestandardowa konsekwencja..." className="w-full mt-4 p-3 border border-slate-300 rounded-lg h-20 focus:ring-2 focus:ring-sky-500"></textarea>
         </div>
 
-        {/* Trauma Module */}
-        <div className="bg-white p-6 rounded-2xl shadow-lg border-amber-200 border">
-          <h3 className="text-lg font-bold text-amber-700 mb-4">Moduł Trauma</h3>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-slate-700">
-                  Skala Oceny Regulacji (Okno Tolerancji)
-                </label>
-                {getRegulationIndicator(regulationState)}
-              </div>
-              <select
-                value={regulationState}
-                onChange={(e) => setRegulationState(e.target.value as RegulationState)}
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition bg-white"
-              >
-                <option value={RegulationState.Regulated}>{RegulationState.Regulated}</option>
-                <option value={RegulationState.HyperArousal}>{RegulationState.HyperArousal}</option>
-                <option value={RegulationState.HypoArousal}>{RegulationState.HypoArousal}</option>
-              </select>
+        {/* Additional info */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+            <h3 className="text-lg font-bold text-sky-700 mb-4">Dodatkowe Informacje</h3>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Stan regulacji dziecka:</label>
+                    <div className="flex flex-wrap gap-2">
+                        {(Object.values(RegulationState)).map(state => (
+                            <button type="button" key={state} onClick={() => setRegulationState(state)} className={`p-2 rounded-lg text-sm border-2 ${regulationState === state ? 'border-sky-500' : 'border-transparent'}`}>{getRegulationIndicator(state)}</button>
+                        ))}
+                    </div>
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Potencjalne wyzwalacze (oddzielone przecinkami):</label>
+                    <input type="text" value={triggers} onChange={e => setTriggers(e.target.value)} placeholder="Np. głośny dźwięk, zmiana planów" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500" />
+                </div>
             </div>
-            <div>
-              <label htmlFor="triggers" className="block text-sm font-medium text-slate-700 mb-2">
-                Wyzwalacze (Triggers)
-              </label>
-              <input
-                id="triggers"
-                type="text"
-                value={triggers}
-                onChange={(e) => setTriggers(e.target.value)}
-                placeholder="Np. głośny dźwięk, konkretne słowo"
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition"
-              />
-              <p className="text-xs text-slate-500 mt-1">Opisz bodźce, które mogły przypomnieć o traumie.</p>
-            </div>
-          </div>
         </div>
 
-        <div className="mt-8">
-            <button
-                type="submit"
-                className="w-full bg-sky-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-sky-700 transition-transform duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:bg-slate-400"
-                disabled={!behaviorName}
-            >
-                Zapisz zdarzenie
-            </button>
-        </div>
+        <button type="submit" className="w-full bg-sky-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-sky-700 transition" disabled={!behaviorName}>Zapisz Zdarzenie</button>
       </form>
     </div>
   );

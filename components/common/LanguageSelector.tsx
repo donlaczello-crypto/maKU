@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
-import Icon from './Icon';
+// Fix: Changed to named import for Icon.
+import { Icon } from './Icon';
 
 const LanguageSelector: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);

@@ -1,56 +1,48 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { analyzeLiveSpeechChunk } from '../services/geminiService';
 import { LiveSpeechAnalysis } from '../types';
 
-// Add types for Web Speech API to resolve TypeScript errors.
-interface SpeechRecognition extends EventTarget {
+// --- Local Interface Declarations for Web Speech API ---
+// Defined locally to avoid global namespace conflicts with other components using the same API.
+
+interface LocalSpeechRecognition extends EventTarget {
     continuous: boolean;
     interimResults: boolean;
     lang: string;
     start(): void;
     stop(): void;
-    onresult: (event: SpeechRecognitionEvent) => void;
-    onerror: (event: SpeechRecognitionErrorEvent) => void;
+    onresult: (event: LocalSpeechRecognitionEvent) => void;
+    onerror: (event: LocalSpeechRecognitionErrorEvent) => void;
     onend: () => void;
 }
 
-interface SpeechRecognitionStatic {
-    new(): SpeechRecognition;
-}
-
-interface SpeechRecognitionEvent extends Event {
+interface LocalSpeechRecognitionEvent extends Event {
     readonly resultIndex: number;
-    readonly results: SpeechRecognitionResultList;
+    readonly results: LocalSpeechRecognitionResultList;
 }
 
-interface SpeechRecognitionResultList {
+interface LocalSpeechRecognitionResultList {
     readonly length: number;
-    item(index: number): SpeechRecognitionResult;
-    [index: number]: SpeechRecognitionResult;
+    item(index: number): LocalSpeechRecognitionResult;
+    [index: number]: LocalSpeechRecognitionResult;
 }
 
-interface SpeechRecognitionResult {
+interface LocalSpeechRecognitionResult {
     readonly isFinal: boolean;
     readonly length: number;
-    item(index: number): SpeechRecognitionAlternative;
-    [index: number]: SpeechRecognitionAlternative;
+    item(index: number): LocalSpeechRecognitionAlternative;
+    [index: number]: LocalSpeechRecognitionAlternative;
 }
 
-interface SpeechRecognitionAlternative {
+interface LocalSpeechRecognitionAlternative {
     readonly transcript: string;
     readonly confidence: number;
 }
 
-interface SpeechRecognitionErrorEvent extends Event {
+interface LocalSpeechRecognitionErrorEvent extends Event {
     readonly error: string;
     readonly message: string;
-}
-
-declare global {
-    interface Window {
-        SpeechRecognition: SpeechRecognitionStatic;
-        webkitSpeechRecognition: SpeechRecognitionStatic;
-    }
 }
 
 const RealTimeSpeechMonitor: React.FC = () => {
@@ -58,105 +50,147 @@ const RealTimeSpeechMonitor: React.FC = () => {
     const [transcript, setTranscript] = useState('');
     const [interimTranscript, setInterimTranscript] = useState('');
     const [analysis, setAnalysis] = useState<Partial<LiveSpeechAnalysis>>({});
+    const [keywordCounts, setKeywordCounts] = useState<Record<string, number>>({});
+    const [repetitionCounts, setRepetitionCounts] = useState<Record<string, number>>({});
+    const [emotionCounts, setEmotionCounts] = useState<Record<string, number>>({});
     const [error, setError] = useState('');
     
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
-    const analysisIntervalRef = useRef<number | null>(null);
-    const transcriptChunkRef = useRef('');
+    const recognitionRef = useRef<LocalSpeechRecognition | null>(null);
     
-    // Check for API support at the beginning of the component.
-    const isApiSupported = !!(typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition));
+    // Check for API support
+    const isApiSupported = !!(typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
 
+    const analyzeFragment = async (chunkToAnalyze: string) => {
+        if (!chunkToAnalyze) return;
+        try {
+            const result = await analyzeLiveSpeechChunk(chunkToAnalyze);
+            if(result && result.trim() !== '{}') {
+               const parsedResult: LiveSpeechAnalysis = JSON.parse(result);
+               
+               setAnalysis(prev => ({
+                   ...prev,
+                   emotionalValence: parsedResult.emotionalValence,
+                   speechPace: parsedResult.speechPace,
+                   isFragmented: parsedResult.isFragmented,
+                   isTopicShift: parsedResult.isTopicShift,
+                   wordCount: (prev.wordCount || 0) + (parsedResult.wordCount || chunkToAnalyze.split(' ').length),
+                   questionCount: (prev.questionCount || 0) + (parsedResult.questionCount || 0),
+               }));
+
+               if (parsedResult.anxietyKeywords) {
+                   setKeywordCounts(prevCounts => {
+                       const newCounts = { ...prevCounts };
+                       for (const keyword of parsedResult.anxietyKeywords) {
+                           newCounts[keyword] = (newCounts[keyword] || 0) + 1;
+                       }
+                       return newCounts;
+                   });
+               }
+
+               if (parsedResult.repetitions) {
+                   setRepetitionCounts(prevCounts => {
+                       const newCounts = { ...prevCounts };
+                       for (const repetition of parsedResult.repetitions) {
+                           newCounts[repetition] = (newCounts[repetition] || 0) + 1;
+                       }
+                       return newCounts;
+                   });
+               }
+
+                if (parsedResult.detectedEmotions) {
+                   setEmotionCounts(prevCounts => {
+                       const newCounts = { ...prevCounts };
+                       for (const emotion of parsedResult.detectedEmotions) {
+                           newCounts[emotion] = (newCounts[emotion] || 0) + 1;
+                       }
+                       return newCounts;
+                   });
+               }
+            }
+        } catch (e) {
+            console.error("Error parsing analysis result", e);
+            setError('Wystąpił błąd podczas analizy danych.');
+        }
+    };
 
     useEffect(() => {
-        // Only set up recognition if the API is supported and we are trying to listen.
         if (!isApiSupported || !isListening) {
-            // Clean up if listening is stopped
             if (recognitionRef.current) {
                 recognitionRef.current.stop();
-            }
-            if (analysisIntervalRef.current) {
-                clearInterval(analysisIntervalRef.current);
             }
             return;
         }
 
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
+        const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const recognition = new SpeechRecognitionConstructor() as unknown as LocalSpeechRecognition;
+        
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'pl-PL';
 
-        recognition.onresult = (event) => {
-            let finalTranscript = '';
+        recognition.onresult = (event: LocalSpeechRecognitionEvent) => {
+            let finalTranscriptPart = '';
             let currentInterim = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript;
+                    finalTranscriptPart += event.results[i][0].transcript;
                 } else {
                     currentInterim += event.results[i][0].transcript;
                 }
             }
             
-            if (finalTranscript) {
-                setTranscript(prev => prev + finalTranscript);
-                transcriptChunkRef.current += finalTranscript;
+            if (finalTranscriptPart) {
+                const trimmedFinalPart = finalTranscriptPart.trim();
+                setTranscript(prev => prev + ' ' + trimmedFinalPart);
                 setInterimTranscript('');
-            } else {
-                setInterimTranscript(currentInterim);
+                analyzeFragment(trimmedFinalPart);
             }
+            
+            setInterimTranscript(currentInterim);
         };
 
-        recognition.onerror = (event) => {
+        recognition.onerror = (event: LocalSpeechRecognitionErrorEvent) => {
             console.error("Speech recognition error", event.error);
-            setError(`Błąd rozpoznawania mowy: ${event.error}`);
+            let errorMessage = 'Wystąpił nieznany błąd rozpoznawania mowy.';
+            switch (event.error) {
+                case 'not-allowed':
+                    errorMessage = 'Brak dostępu do mikrofonu. Proszę sprawdzić uprawnienia przeglądarki.';
+                    break;
+                case 'no-speech':
+                    errorMessage = 'Nie wykryto mowy. Proszę mówić głośniej lub wyraźniej.';
+                    break;
+                case 'aborted':
+                    errorMessage = 'Rozpoznawanie mowy zostało przerwane.';
+                    break;
+                case 'network':
+                    errorMessage = 'Błąd sieciowy podczas rozpoznawania mowy.';
+                    break;
+                case 'audio-capture':
+                    errorMessage = 'Nie można przechwycić dźwięku z mikrofonu.';
+                    break;
+                case 'language-not-supported':
+                    errorMessage = 'Język polski nie jest obsługiwany przez tę wersję API.';
+                    break;
+            }
+            setError(errorMessage);
             setIsListening(false);
         };
         
         recognition.onend = () => {
-            // The isListening state check prevents it from restarting after being manually stopped.
             if (isListening) {
-                recognition.start(); // Keep listening if it stops unexpectedly
+                try { recognition.start(); } catch(e) {} 
             }
         };
 
         recognitionRef.current = recognition;
-        recognition.start(); // Start listening
-
-        // Start analysis interval
-        analysisIntervalRef.current = window.setInterval(async () => {
-            if (transcriptChunkRef.current.trim().length > 0) {
-                const chunkToAnalyze = transcriptChunkRef.current;
-                transcriptChunkRef.current = '';
-                try {
-                    const result = await analyzeLiveSpeechChunk(chunkToAnalyze);
-                    if(result && result.trim() !== '{}') {
-                       const parsedResult: LiveSpeechAnalysis = JSON.parse(result);
-                       setAnalysis(prev => {
-                           const newKeywords = [...new Set([...(prev.anxietyKeywords || []), ...(parsedResult.anxietyKeywords || [])])];
-                           const newRepetitions = [...new Set([...(prev.repetitions || []), ...(parsedResult.repetitions || [])])];
-                           return {
-                               ...prev,
-                               ...parsedResult,
-                               wordCount: (prev.wordCount || 0) + (parsedResult.wordCount || chunkToAnalyze.split(' ').length),
-                               questionCount: (prev.questionCount || 0) + (parsedResult.questionCount || 0),
-                               anxietyKeywords: newKeywords,
-                               repetitions: newRepetitions
-                           };
-                       });
-                    }
-                } catch (e) {
-                    console.error("Error parsing analysis result", e);
-                    setError('Wystąpił błąd podczas analizy danych.');
-                }
-            }
-        }, 5000); // Analyze every 5 seconds
+        try {
+            recognition.start(); 
+        } catch(e) {
+            console.error("Start error", e);
+        }
 
         return () => {
-            recognition.stop();
-            if (analysisIntervalRef.current) {
-                clearInterval(analysisIntervalRef.current);
-            }
+            try { recognition.stop(); } catch(e) {}
         };
     }, [isListening, isApiSupported]);
 
@@ -164,12 +198,13 @@ const RealTimeSpeechMonitor: React.FC = () => {
         if (!isApiSupported) return;
 
         if (!isListening) {
-            // Reset state before starting
             setTranscript('');
             setInterimTranscript('');
-            transcriptChunkRef.current = '';
             setAnalysis({});
             setError('');
+            setKeywordCounts({});
+            setRepetitionCounts({});
+            setEmotionCounts({});
         }
         setIsListening(prev => !prev);
     };
@@ -182,11 +217,7 @@ const RealTimeSpeechMonitor: React.FC = () => {
                 <div className="bg-white p-6 rounded-2xl shadow-lg border border-amber-200">
                     <h3 className="text-lg font-bold text-amber-700">Funkcja nieobsługiwana</h3>
                     <p className="text-slate-600 mt-2">
-                        Twoja przeglądarka nie wspiera Web Speech API, która jest wymagana do działania tej funkcji. 
-                        Chociaż funkcja ta nie jest specyficzna dla systemu Windows, jej dostępność zależy od przeglądarki.
-                    </p>
-                    <p className="text-slate-600 mt-2">
-                        Dla najlepszego doświadczenia, rekomendujemy korzystanie z przeglądarki Google Chrome na komputerze lub urządzeniu z systemem Android.
+                        Twoja przeglądarka nie wspiera Web Speech API.
                     </p>
                 </div>
             </div>
@@ -200,12 +231,14 @@ const RealTimeSpeechMonitor: React.FC = () => {
         </div>
     );
     
-    const ListIndicator: React.FC<{ label: string; items: string[] | undefined; className?: string }> = ({ label, items, className }) => (
+    const ListIndicator: React.FC<{ label: string; items: Record<string, number> | undefined; className?: string }> = ({ label, items, className }) => (
         <div className={`bg-slate-100 p-3 rounded-lg ${className}`}>
             <p className="text-sm text-slate-500">{label}</p>
-            {items && items.length > 0 ? (
+            {items && Object.keys(items).length > 0 ? (
                 <div className="flex flex-wrap gap-1 mt-1">
-                    {items.map((item, index) => <span key={index} className="bg-red-200 text-red-800 text-xs font-semibold px-2 py-1 rounded-full">{item}</span>)}
+                    {Object.entries(items).map(([item, count]) => 
+                        <span key={item} className="bg-red-200 text-red-800 text-xs font-semibold px-2 py-1 rounded-full">{item} ({count})</span>
+                    )}
                 </div>
             ) : <p className="text-lg font-bold text-slate-800">Brak</p>}
         </div>
@@ -219,54 +252,55 @@ const RealTimeSpeechMonitor: React.FC = () => {
             {error && <p className="text-red-600 bg-red-100 p-3 rounded-lg text-sm mb-4">{error}</p>}
             
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 mb-6">
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center text-center">
                     <button
                         onClick={handleToggleListening}
-                        className={`w-24 h-24 rounded-full flex items-center justify-center transition ${isListening ? 'bg-red-500 hover:bg-red-600' : 'bg-sky-500 hover:bg-sky-600'}`}
+                        className={`w-24 h-24 rounded-full flex items-center justify-center transition-all shadow-lg ${isListening ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-sky-500 hover:bg-sky-600'}`}
                     >
-                         <svg xmlns="http://www.w3.org/2000/svg" className={`h-10 w-10 text-white ${isListening ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                         </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            {isListening ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            )}
+                        </svg>
                     </button>
-                    <p className="mt-3 text-slate-600 font-semibold text-lg">{isListening ? 'Słucham...' : 'Rozpocznij monitorowanie'}</p>
+                    <p className="mt-4 text-lg font-bold text-slate-700">
+                        {isListening ? 'Analiza trwa...' : 'Naciśnij, aby rozpocząć analizę'}
+                    </p>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Transcript */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-                     <h3 className="text-lg font-bold text-sky-700 mb-4">Transkrypcja na Żywo</h3>
-                     <div className="w-full h-48 bg-slate-50 rounded-lg p-3 overflow-y-auto border border-slate-200">
-                        <p className="text-slate-700 whitespace-pre-wrap">
-                            {transcript}
-                            <span className="text-slate-400">{interimTranscript}</span>
-                        </p>
-                     </div>
-                </div>
-
-                {/* Cognitive Indicators */}
-                <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
-                    <h3 className="text-lg font-bold text-sky-700 mb-4">Wskaźniki Poznawcze</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                       <Indicator label="Walencja Emocjonalna" value={analysis.emotionalValence} />
-                       <Indicator label="Liczba Słów" value={analysis.wordCount} />
-                       <Indicator label="Liczba Pytań" value={analysis.questionCount} />
-                       <Indicator label="Powtórzenia (echolalia)" value={analysis.repetitions?.length || 0} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 h-64 flex flex-col">
+                    <h3 className="text-lg font-bold text-sky-700 mb-2">Transkrypcja</h3>
+                    <div className="flex-1 bg-slate-50 rounded-lg p-3 overflow-y-auto text-sm text-slate-700 font-medium border border-slate-200">
+                        {transcript} <span className="text-slate-400 italic">{interimTranscript}</span>
+                        {!transcript && !interimTranscript && <span className="text-slate-400 italic">Tutaj pojawi się tekst...</span>}
                     </div>
                 </div>
-                
-                 {/* Emotional Threat Indicators */}
-                <div className="bg-white p-6 rounded-2xl shadow-lg border-2 border-amber-300">
-                    <h3 className="text-lg font-bold text-amber-700 mb-4">Wskaźniki Emocjonalnego Zagrożenia (Trauma/Lęk)</h3>
-                     <div className="grid grid-cols-1 gap-3">
-                       <Indicator label="Tempo i Ton Mowy" value={analysis.speechPace} />
-                       <ListIndicator label="Słowa Kluczowe (Lęk/Zagrożenie)" items={analysis.anxietyKeywords} />
-                       <Indicator label="Fragmentacja Mowy" value={analysis.isFragmented ? 'Wykryto' : 'Brak'} />
-                       <Indicator label="Nagłe Zmiany Tematu" value={analysis.isTopicShift ? 'Wykryto' : 'Brak'} />
+
+                <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-4 overflow-y-auto h-64">
+                    <h3 className="text-lg font-bold text-sky-700 mb-2">Wskaźniki</h3>
+                    <Indicator label="Walencja emocjonalna" value={analysis.emotionalValence} className={analysis.emotionalValence === 'Negatywny' ? 'bg-red-50 border border-red-200' : ''} />
+                    <Indicator label="Tempo mowy" value={analysis.speechPace} />
+                    <div className="grid grid-cols-2 gap-4">
+                         <Indicator label="Słowa" value={analysis.wordCount} />
+                         <Indicator label="Pytania" value={analysis.questionCount} />
+                    </div>
+                    <div className="flex gap-2">
+                        {analysis.isFragmented && <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full border border-amber-200">Fragmentaryczność</span>}
+                        {analysis.isTopicShift && <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full border border-purple-200">Zmiana Tematu</span>}
                     </div>
                 </div>
             </div>
 
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 space-y-6">
+                 <h3 className="text-lg font-bold text-sky-700">Szczegóły Analizy</h3>
+                 <ListIndicator label="Słowa kluczowe (Lęk/Stres)" items={keywordCounts} className="border border-slate-200" />
+                 <ListIndicator label="Wykryte Emocje" items={emotionCounts} className="border border-slate-200" />
+                 <ListIndicator label="Powtórzenia/Echolalie" items={repetitionCounts} className="border border-slate-200" />
+            </div>
         </div>
     );
 };

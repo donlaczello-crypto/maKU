@@ -5,17 +5,15 @@ export enum View {
   DrawingInterpreter,
   StrategyGuide,
   VisualSchedule,
-  Collaboration,
   ResourceLibrary,
   RealTimeMonitor,
   DataAnalytics,
   SpeechInterpreter,
   RealTimeSpeechMonitor,
+  EarlyWarningSystem,
   SuccessJournal,
   SkillBuilder,
   EscalationMonitor,
-  EarlyWarningSystem,
-  AssistantConversation,
   DyadicRegulation,
   AttentionHub,
   GeminiKids,
@@ -26,6 +24,23 @@ export enum View {
   VideoAnalyzer,
   VideoGenerator,
   LocalResources,
+  ConversationArchive,
+  ProactivePlanner,
+  PrivacySettings,
+  RemoteMonitor,
+  UpgradeView, // Added specifically for navigation
+}
+
+export type AppRole = 'Parent' | 'Child' | null;
+
+export interface PairingConfig {
+    deviceId: string;
+    pairedDeviceId: string | null;
+    parentEmail: string;
+    // isRemoteListeningActive removed - feature deprecated for privacy/legal reasons
+    parentName?: string;
+    childName?: string;
+    goals?: string;
 }
 
 export interface ABCEvent {
@@ -62,6 +77,7 @@ export interface LiveSpeechAnalysis {
   isTopicShift: boolean;
   repetitions: string[];
   questionCount: number;
+  detectedEmotions?: string[];
 }
 
 export interface StructuredSpeechAnalysis {
@@ -115,18 +131,6 @@ export interface AttentionConcentrator {
     rationale: string;
 }
 
-export interface ChildProfile {
-    name: string;
-    favoriteAnimal: string;
-    interests: string;
-}
-
-export interface GeminiCard {
-    emoji: string;
-    title: string;
-    description: string;
-}
-
 export interface LinkedDrawingData {
     analysis: string;
     context: string;
@@ -145,8 +149,56 @@ export interface FamilyActivity {
     description: string;
 }
 
-export interface Selfie {
+export interface GeminiCard {
+    emoji: string;
+    title: string;
+    description: string;
+}
+
+export type AssistantPersona = 'Friendly & Calm' | 'Energetic & Playful' | 'Neutral';
+
+export interface ChildProfile {
+  id: string;
+  name: string;
+  age: number;
+  conditions: string[]; 
+  preferredAssistantPersona: AssistantPersona;
+  preferredVoice?: string; 
+}
+
+export interface ConversationReport {
     id: string;
-    imageBase64: string;
     date: string;
+    childProfileId: string | null; 
+    assistantPersona: AssistantPersona; 
+    summary: string;
+    emotionalTone: string;
+    keyThemes: string[];
+    potentialTriggers: string[];
+    positiveMoments: string[];
+    suggestionsForCaregiver: string[];
+}
+
+export interface JournalEntry {
+    id: number;
+    text: string;
+    date: string;
+}
+
+// --- PURCHASING & SUBSCRIPTION TYPES ---
+
+export enum PremiumFeature {
+    AI_Assistant = 'AI_Assistant', // GeminiKids
+    Video_Analysis = 'Video_Analysis', // VideoAnalyzer, VideoGenerator
+    Deep_Analytics = 'Deep_Analytics', // DataAnalytics, EarlyWarning, ProactivePlanner
+    Creative_Tools = 'Creative_Tools', // DrawingInterpreter, ImageEditor
+    Remote_Access = 'Remote_Access', // RemoteMonitor
+}
+
+export interface UserSubscription {
+    isSubscribed: boolean;
+    planType: 'monthly' | 'one_time' | 'trial' | 'none'; 
+    expiryDate: string | null; // ISO Date string
+    unlockedFeatures: PremiumFeature[]; // Individual unlocks
+    hasUsedTrial: boolean; // Prevents repeated trials
 }

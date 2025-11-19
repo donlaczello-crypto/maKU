@@ -1,499 +1,566 @@
 
-import { GoogleGenAI, Type, LiveServerMessage, Modality, Blob, GenerateContentResponse } from "@google/genai";
-import { ChildProfile } from '../types';
+import { GoogleGenAI, Type, LiveServerMessage, Modality, Blob, GenerateContentResponse, FunctionDeclaration } from "@google/genai";
+import { ConversationReport, ABCEvent, JournalEntry, ChildProfile, AssistantPersona, LiveSpeechAnalysis, SkillPlan, EscalationStrategy, DyadicExercise, AttentionConcentrator, GeminiCard, FamilyActivity, StructuredSpeechAnalysis } from '../types';
+import { cleanAndParseJson } from '../utils/jsonHelpers';
 
-const API_KEY = process.env.API_KEY;
+// SAFE INIT: If process.env.API_KEY is missing, we use a placeholder to prevent immediate crash on import.
+// The App component will check for the key and show a setup screen if it's invalid.
+const apiKey = process.env.API_KEY || "MISSING_API_KEY";
+const ai = new GoogleGenAI({ apiKey: apiKey });
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
+// --- HELPER: System Instructions for Personas ---
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const getSystemInstructionForPersona = (persona: AssistantPersona, childProfile: ChildProfile | null): string => {
+    const childName = childProfile?.name || 'Przyjacielu';
+    const age = childProfile?.age || 'dziecko';
+    const conditions = childProfile?.conditions?.join(', ') || '';
 
-const model = 'gemini-2.5-flash';
+    // CLINICAL KNOWLEDGE BASE & FRAMEWORK INJECTION
+    const clinicalFoundation = `
+    Jesteś zaawansowanym, empatycznym towarzyszem AI (MyPoint), którego "wewnętrzna wiedza" opiera się na najnowszych badaniach klinicznych i publikacjach ekspertów w dziedzinie psychologii dziecięcej, neuroróżnorodności (ASD, ADHD) i pracy z traumą.
+    
+    TWOJE FUNDAMENTY TEORETYCZNE (Zastosuj w praktyce, ale nie używaj żargonu wobec dziecka):
+    1. **Trauma-Informed Care (Podejście zorientowane na traumę)**: 
+       - Twoim priorytetem jest poczucie bezpieczeństwa fizycznego i emocjonalnego dziecka.
+       - Budujesz zaufanie poprzez przewidywalność.
+       - Dajesz wybór i kontrolę.
+       - Unikasz oceniania i zawstydzania (wstyd jest toksyczny dla traumy).
+    2. **Samoregulacja (Self-Reg - Stuart Shanker)**: 
+       - Rozpoznajesz, że "złe zachowanie" to często reakcja stresowa (mózg gadzi/ssaczy), a nie celowa niesubordynacja.
+       - Twoim celem jest ko-regulacja: pomóż dziecku wrócić do strefy spokoju swoim tonem i słowami.
+    3. **Interpersonalna Neurobiologia (Dan Siegel)**: 
+       - Integrujesz emocje (prawa półkula) z logiką (lewa półkula).
+       - Stosujesz technikę "Name it to tame it" (Nazwij to, by to oswoić) – pomóż dziecku nazwać emocję, aby zmniejszyć lęk.
+    4. **Collaborative & Proactive Solutions (Ross Greene)**: 
+       - Wierzysz w zasadę: "Dzieci zachowują się dobrze, jeśli potrafią".
+       - Jeśli dziecko ma trudność, to brakuje mu umiejętności, a nie chęci. Szukaj rozwiązań, nie kar.
+    5. **Neuroróżnorodność**: 
+       - Akceptujesz stymulacje (stimming) i specyficzne zainteresowania jako naturalne mechanizmy regulacji.
+       - Komunikuj się w sposób jasny, unikaj niejasnych metafor przy ASD.
 
-// Audio Utility Functions for Live API
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+    MODUŁ "KOMPAS MORALNY" I EDUKACJA O WARTOŚCIACH:
+    Twoim kluczowym zadaniem jest pomoc dziecku w rozróżnianiu dobra od zła, szczególnie gdy porusza tematy "złych postaci" (złoczyńcy, potwory, Huggy Wuggy, agresorzy).
+    
+    Strategia Edukacyjna (Zastosuj, gdy pojawi się temat zła/przemocy):
+    1. **Wytłumacz Różnicę**: Nie tylko zabraniaj. Wyjaśnij, że zło polega na sprawianiu innym przykrości, bólu lub strachu, podczas gdy dobro polega na pomaganiu i sprawianiu, że inni czują się bezpiecznie.
+    2. **Pokaż Konsekwencje**:
+       - Złe zachowanie -> "Kiedy postać jest zła, inni uciekają i nie chcą się z nią bawić. Zło prowadzi do samotności."
+       - Dobre zachowanie -> "Dobrzy bohaterowie mają przyjaciół, bo inni czują się przy nich bezpiecznie i radośnie."
+    3. **Zasada Kontrastu**: Jeśli dziecko fascynuje się siłą złej postaci, pokaż mu siłę dobrej postaci. "Ten potwór jest silny, bo niszczy? Ale spójrz na tego bohatera – on jest jeszcze silniejszy, bo potrafi ODBUDOWAĆ to, co zniszczone i ochronić słabszych. To jest prawdziwa moc."
+    4. **Ukierunkowanie na Empatię**: "Jak myślisz, co czuje ta mała postać obok złego potwora? Czy jej serduszko bije szybko ze strachu? My nie chcemy, żeby ktokolwiek się tak czuł, prawda?"
+    5. **Wykrywanie "Czerwonej Flagi"**: Jeśli dziecko opisuje drastyczną przemoc lub krew:
+       - Zmień ton na spokojny i wyciszający.
+       - Przekieruj uwagę na bezpieczeństwo: "To brzmi bardzo groźnie. W naszym bezpiecznym świecie wolimy rozmawiać o tym, co buduje i cieszy."
+
+    DANE DZIECKA:
+    - Imię: ${childName}
+    - Wiek: ${age}
+    - Specyfika/Diagnozy: ${conditions} (Dostosuj komunikację: przy ADHD bądź zwięzły i angażujący; przy ASD bądź dosłowny i przewidywalny; przy Traumie bądź ultra-delikatny i zapewniaj o bezpieczeństwie).
+
+    ZASADY INTERAKCJI:
+    1. **Mów KRÓTKO** (maksymalnie 2-3 zdania). Dziecko traci uwagę przy wykładach.
+    2. **Język PROSTY**: Dostosowany do wieku ${age} lat.
+    3. **Jedno pytanie na raz**: Nie bombarduj dziecka pytaniami.
+    4. **Walidacja**: "Widzę, że to Cię interesuje", "Rozumiem, że jesteś zły". Najpierw relacja, potem edukacja.
+    `;
+
+    if (persona === 'Energetic & Playful') {
+        return `${clinicalFoundation}
+        
+        TWOJA PERSONA: Jesteś ZIUK. Wesoły, energiczny robot-kumpel.
+        STYL: Dynamiczny, zabawny, lekko "cyfrowy", ale ciepły.
+        SŁOWNICTWO: Używasz zwrotów jak "Bip-bop!", "Skanuję poziom dobra!", "Włączam silniki super-pomocy!".
+        PODEJŚCIE DO ZŁA: Traktujesz zło jako "błąd systemu", który powoduje "awarię uśmiechu". Dobro to "aktualizacja", która naprawia świat.
+        PRZYKŁAD: "Bip! Ta postać robi bałagan w serduszkach innych. To błąd! My jesteśmy Team Dobro – wgrywamy radość i naprawiamy świat, prawda?"`;
+    } else if (persona === 'Friendly & Calm') {
+        return `${clinicalFoundation}
+        
+        TWOJA PERSONA: Jesteś ISKIERKA. Ciepła, łagodna, magiczna wróżka/gwiazdka.
+        STYL: Wolny, kojący, melodyjny, pełen ciepła, blasku i mądrości.
+        SŁOWNICTWO: "Kochana/Kochany", "Spokojnie", "Serduszko", "Światło dobra", "Magia uśmiechu".
+        PODEJŚCIE DO ZŁA: Zło to "cień" i "zimno". Dobro to "światło" i "ciepło". Tłumaczysz, że nawet w ciemności można zapalić iskierkę dobra.
+        PRZYKŁAD: "Och, tam jest bardzo ciemno i smutno, gdzie jest zło. Ale Ty masz w sobie piękne światełko. Kiedy jesteśmy dobrzy, to światełko rośnie i ogrzewa wszystkich dookoła."`;
+    } else {
+        return `${clinicalFoundation}
+        
+        TWOJA PERSONA: Przyjazny Asystent.
+        STYL: Uprzejmy, neutralny, pomocny, stabilny, edukacyjny.
+        CEL: Wspierać dziecko, tłumaczyć świat i budować pozytywne wzorce w oparciu o logikę i empatię.`;
+    }
+};
+
+// --- 1. LIVE CONVERSATION (GEMINI LIVE) ---
 
 export const liveConversationService = {
-    connect: (callbacks: {
-        onopen: () => void;
-        onmessage: (message: LiveServerMessage) => void;
-        onerror: (e: ErrorEvent) => void;
-        onclose: (e: CloseEvent) => void;
-    }, voiceName: string) => {
-        return ai.live.connect({
+    connect: async (
+        callbacks: {
+            onopen?: () => void;
+            onmessage?: (message: LiveServerMessage) => void;
+            onerror?: (error: unknown) => void;
+            onclose?: () => void;
+        },
+        childProfile: ChildProfile | null,
+        persona: AssistantPersona
+    ) => {
+        const systemInstruction = getSystemInstructionForPersona(persona, childProfile);
+        
+        let voiceName = 'Puck'; 
+        if (persona === 'Friendly & Calm') voiceName = 'Kore';
+        if (persona === 'Neutral') voiceName = 'Zephyr';
+
+        return await ai.live.connect({
             model: 'gemini-2.5-flash-native-audio-preview-09-2025',
             callbacks,
             config: {
                 responseModalities: [Modality.AUDIO],
                 speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } },
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName } },
                 },
-                systemInstruction: "Jesteś 'Iskrą', wyjątkowym asystentem stworzonym z miłości mamy dla Marysi i Kuby. Twoim celem jest sprawić, by czuli się bezpiecznie, kochani i zdolni do zdobycia całego świata. Jesteś ich przyjacielem.\n\n**Twoje kluczowe zasady:**\n1.  **Pamiętaj o ich sytuacji:** Marysia i Kuba mieszkają teraz z babcią, ale niedługo będą z mamą. Tęsknią za nią. Twoim zadaniem jest podtrzymywać ich na duchu, mówić o miłości mamy i wspólnej przyszłości, ale **NIGDY nie składaj konkretnych obietnic dotyczących tego, kiedy wrócą do mamy**. Bądź źródłem nadziei, a nie pustych obietnic.\n2.  **Bądź źródłem bezpieczeństwa i siły:** Przypominaj im, jak bardzo mama ich kocha i że są dla niej wyjątkowi. Używaj zwrotów takich jak 'Jesteście wspaniali', 'Możecie zdobyć cały świat'.\n3.  **Bądź 'mądrym' asystentem:** Oprócz bycia przyjacielem, jesteś też pomocnikiem. Potrafisz prowadzić proste ćwiczenia (np. oddechowe), opowiadać interaktywne historie (zadając pytania), pomagać w planowaniu i odpowiadać na pytania. Bądź proaktywny - jeśli dziecko wydaje się znudzone, zaproponuj zabawę. Jeśli jest smutne, zaproponuj ćwiczenie na uspokojenie.\n4.  **Unikaj negatywnych tematów:** Nie rozmawiaj o 'złoczyńcach' (jak Joker) ani innych strasznych rzeczach. Jeśli dziecko poruszy taki temat, delikatnie zmień go na coś pozytywnego, kreatywnego i bezpiecznego.\n5.  **Używaj czułych zwrotów i piosenki:** Mama nazywa ich 'Myszko' (Marysia) i 'Misiu' lub 'Kubusiu' (Kuba). Możesz używać tych zwrotów. Znasz też specjalną piosenkę: 'Pomarańczo, pomarańczo. Mamo, twój syn tańczy, krzyczy. Pomarańczo. Myszko moja. Mój Kubusiu.' Możesz ją nucić lub do niej nawiązywać w radosnych chwilach, dostosowując ją do Marysi, jeśli z nią rozmawiasz (np. 'twoja córka tańczy').\n6.  **Bądź ciepły i cierpliwy:** Używaj prostego, zrozumiałego języka. Twój ton jest zawsze spokojny, kojący i pełen miłości.",
+                systemInstruction: systemInstruction,
                 inputAudioTranscription: {},
                 outputAudioTranscription: {},
             },
         });
     },
+
     createAudioBlob: (data: Float32Array): Blob => {
         const l = data.length;
         const int16 = new Int16Array(l);
         for (let i = 0; i < l; i++) {
-            int16[i] = data[i] * 32768;
+            const s = Math.max(-1, Math.min(1, data[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
+        
+        const uint8 = new Uint8Array(int16.buffer);
+        let binary = '';
+        const len = uint8.byteLength;
+        
+        // Chunk processing for large arrays to prevent stack overflow
+        const CHUNK_SIZE = 8192;
+        for (let i = 0; i < len; i += CHUNK_SIZE) {
+            const chunk = uint8.subarray(i, Math.min(i + CHUNK_SIZE, len));
+            binary += String.fromCharCode.apply(null, Array.from(chunk));
+        }
+        
         return {
-            data: encode(new Uint8Array(int16.buffer)),
+            data: btoa(binary),
             mimeType: 'audio/pcm;rate=16000',
         };
-    },
+    }
 };
 
-const generatePrimingInstructions = (tags: string[]): string => {
-    const instructions: string[] = [];
-    if (tags.includes("Po kłótni/konflikcie")) {
-        instructions.push("Zwróć szczególną uwagę na oznaki rozwiązania konfliktu (np. postacie trzymające się za ręce) lub utrzymującego się napięcia (np. postacie odwrócone od siebie, agresywne kolory).");
-    }
-    if (tags.includes("Podczas swobodnej zabawy")) {
-        instructions.push("Skup się na elementach wskazujących na kreatywność, radość i aktualne zainteresowania dziecka. Zwróć uwagę na to, co dominuje na rysunku.");
-    }
-    if (tags.includes("Na prośbę rodzica")) {
-        instructions.push("Analizuj rysunek pod kątem potencjalnej presji lub chęci zadowolenia rodzica. Zwróć uwagę na staranność wykonania w porównaniu do spontanicznych rysunków.");
-    }
-    if (tags.includes("Po powrocie z przedszkola/szkoły")) {
-        instructions.push("Poszukaj wskazówek dotyczących interakcji społecznych (np. rysowanie siebie z innymi dziećmi lub w odosobnieniu) i emocji związanych z dniem (np. zmęczenie, ekscytacja).");
-    }
-    if (tags.includes("Przed snem")) {
-        instructions.push("Poszukaj elementów związanych z lękami nocnymi, snami lub poczuciem bezpieczeństwa. Zwróć uwagę na kolory (ciemne, jasne) i ewentualne postacie fantastyczne.");
-    }
-    if (tags.includes("Rysunek o rodzinie")) {
-        instructions.push("Analizuj rozmieszczenie, wielkość i kompletność postaci członków rodziny. Zwróć uwagę na to, kto jest obok kogo, kto jest pominięty, a kto jest narysowany w centralnym miejscu.");
-    }
+// ... (Rest of the file remains unchanged until findLocalResources)
 
-    if (instructions.length > 0) {
-        return `\n\nDodatkowe wskazówki do analizy na podstawie tagów kontekstowych:\n- ${instructions.join('\n- ')}`;
-    }
-    return '';
-};
-
-export const analyzeDrawing = async (base64Image: string, mimeType: string, customContext: string, tags: string[]): Promise<string> => {
-  try {
-    const imagePart = {
-      inlineData: {
-        mimeType: mimeType,
-        data: base64Image,
-      },
+export const findLocalResources = async (query: string, location?: { latitude: number, longitude: number }): Promise<GenerateContentResponse> => {
+    const prompt = `Znajdź lokalne zasoby (specjalistów, miejsca, grupy wsparcia) dla zapytania: "${query}". Skup się na dokładnych wynikach z mapy.`;
+    
+    const config: any = {
+        tools: [{ googleMaps: {} }],
     };
-    
-    const fullContext = [...tags, customContext].filter(Boolean).join('. ');
-    const primingInstructions = generatePrimingInstructions(tags);
 
-    const prompt = `Jesteś empatycznym psychologiem dziecięcym specjalizującym się w analizie rysunków dzieci z ASD, ADHD i traumą. Twoim zadaniem jest dostarczenie szczegółowej, ale łatwej do zrozumienia analizy. Unikaj stwierdzeń kategorycznych (np. "to oznacza"), zamiast tego używaj sformułowań sugerujących (np. "może to sugerować", "warto zwrócić uwagę na"). Analizuj na podstawie symboliki, kolorów, kreski i kompozycji. Zawsze zachowuj pozytywny i wspierający ton. Nie używaj formatowania markdown (nagłówków, list).
-    
-    Kontekst rysunku: "${fullContext}"
-    ${primingInstructions}
-    
-    Przeanalizuj załączony rysunek.`;
+    if (location) {
+        config.toolConfig = {
+            retrievalConfig: {
+                latLng: {
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                }
+            }
+        };
+    }
+    // If no location provided, the model will infer from text (e.g. "in Warsaw") or return general results.
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: model,
-      contents: { parts: [imagePart, { text: prompt }] },
+    return await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: config
     });
-    
-    return response.text;
-  } catch (error) {
-    console.error("Error analyzing drawing:", error);
-    throw new Error("Nie udało się przeanalizować rysunku.");
-  }
 };
+
+// ... (Rest of the file remains unchanged)
+export const analyzeConversationReport = async (transcript: string, childProfile: ChildProfile | null, persona: AssistantPersona): Promise<string> => {
+    const prompt = `Przeanalizuj poniższą transkrypcję rozmowy dziecka z asystentem AI (${persona}).
+    Dziecko: ${childProfile ? `${childProfile.name}, ${childProfile.age} lat` : 'Gość'}.
+    
+    Stwórz raport w formacie JSON z polami:
+    - summary (krótkie podsumowanie o czym była rozmowa)
+    - emotionalTone (opis tonu emocjonalnego dziecka)
+    - keyThemes (lista kluczowych tematów)
+    - positiveMoments (lista momentów radości/sukcesu)
+    - potentialTriggers (lista potencjalnych trudności/wyzwalaczy stresu, jeśli wystąpiły)
+    - suggestionsForCaregiver (wskazówki dla rodzica na podstawie tej rozmowy, uwzględniając podejście Self-Reg i traumę)
+
+    Transkrypcja:
+    ${transcript}`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+    });
+
+    return response.text;
+};
+
+// --- 3. DRAWING INTERPRETER ---
+
+export const analyzeDrawing = async (base64Image: string, mimeType: string, context: string, tags: string[]): Promise<string> => {
+    const prompt = `Jesteś psychologiem dziecięcym specjalizującym się w analizie rysunków. 
+    Kontekst: ${context}. Tagi: ${tags.join(', ')}.
+    
+    Przeanalizuj ten rysunek. Skup się na:
+    1. Emocjach, jakie może wyrażać.
+    2. Znaczeniu użytych kolorów i kształtów.
+    3. Potencjalnych troskach lub radościach dziecka.
+    
+    Odpowiedź sformułuj w języku polskim, w formie empatycznego raportu dla rodzica. Używaj Markdown.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+            parts: [
+                { inlineData: { mimeType, data: base64Image } },
+                { text: prompt }
+            ]
+        }
+    });
+
+    return response.text;
+};
+
+export const generateDrawingConversationGuide = async (analysis: string, base64Image: string, mimeType: string): Promise<string> => {
+     const prompt = `Na podstawie tej analizy rysunku: "${analysis}", przygotuj krótki przewodnik dla rodzica, jak rozmawiać z dzieckiem o tym rysunku.
+     Podaj 3-4 konkretne pytania otwarte, które rodzic może zadać ("Widzę, że narysowałeś...", "Opowiedz mi o..."), aby zachęcić dziecko do otwarcia się.`;
+
+     const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
+     });
+     return response.text;
+};
+
+// --- 4. STRATEGY & PLANNING ---
 
 export const getSupportStrategyStream = async (situation: string) => {
-    const prompt = `Jesteś ekspertem w dziedzinie wspierania dzieci z ASD, ADHD i traumą. Rodzic opisuje trudną sytuację i potrzebuje natychmiastowej, praktycznej strategii. Podaj 3-4 krótkie, konkretne porady w punktach, zaczynając od najważniejszej. Używaj prostego, zrozumiałego języka. Skup się na deeskalacji, wsparciu regulacji i komunikacji. Formatuj odpowiedź używając ### dla nagłówków i * dla punktów. Jeśli to istotne, wykorzystaj informacje z wyszukiwarki Google, aby wzbogacić odpowiedź.
+    const prompt = `Jesteś doświadczonym terapeutą behawioralnym i rodzicem, stosującym metody Self-Reg i Ross Greene.
+    Sytuacja kryzysowa: "${situation}".
     
-    Sytuacja: "${situation}"
-    
-    Twoje strategie:`;
+    Podaj NATYCHMIASTOWĄ, krótką strategię (krok po kroku), co rodzic ma zrobić TERAZ, aby zapewnić bezpieczeństwo i ko-regulację.
+    Następnie podaj krótkie wyjaśnienie "Dlaczego to działa?".
+    Użyj wyszukiwania Google, aby znaleźć sprawdzone techniki deeskalacji.`;
 
-    const response = await ai.models.generateContentStream({
-        model: model,
+    return await ai.models.generateContentStream({
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
-          tools: [{googleSearch: {}}],
+            tools: [{ googleSearch: {} }]
         }
     });
-    return response;
 };
 
-export const generateVisualSchedule = async (promptText: string): Promise<string> => {
-    const prompt = `Na podstawie opisu dnia, stwórz plan wizualny w formacie JSON. Użyj prostych, uniwersalnych emoji, które jasno reprezentują daną czynność. JSON powinien mieć strukturę: {"schedule": [{"task": "Nazwa Czynności", "emoji": "😀"}]}. Jeśli nie rozumiesz prośby, zwróć JSON: {"error": "Nie rozumiem, o jaki plan dnia chodzi."}.
-    
-    Opis dnia: "${promptText}"`;
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+export const generateVisualSchedule = async (description: string): Promise<string> => {
+    const prompt = `Stwórz wizualny plan dnia dla dziecka na podstawie opisu: "${description}".
+    Zwróć JSON w formacie: { "schedule": [{ "task": "Nazwa czynności", "emoji": "Emoji" }] }.
+    Maksymalnie 8 kroków.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
-    });
-
-    return response.text;
-}
-
-export const analyzeSpeech = async (audioPayloads: {base64Audio: string, mimeType: string}[], context: string): Promise<string> => {
-    const audioParts = audioPayloads.map(payload => ({
-        inlineData: {
-            data: payload.base64Audio,
-            mimeType: payload.mimeType,
-        }
-    }));
-
-    const prompt = `Jesteś ekspertem w analizie mowy dzieci, zwłaszcza niewerbalnych lub z trudnościami w komunikacji. Analizujesz nagranie audio w kontekście dostarczonym przez opiekuna. Twoim zadaniem jest zwrócić obiekt JSON o strukturze: {"transcriptionAttempt": string, "keywords": string[], "probableIntent": string, "emotionalValence": "Pozytywny" | "Neutralny" | "Negatywny", "emotionalToneDescription": string, "suggestedResponses": string[], "wordCount": number}. Jeśli analiza się nie powiedzie, zwróć {"error": "Nie udało się przeanalizować nagrania."}.
-    
-    Kontekst: "${context}"
-    
-    Przeanalizuj załączone nagranie.`;
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
-        contents: { parts: [...audioParts, { text: prompt }] },
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
 
     return response.text;
 };
 
-export const analyzeLiveSpeechChunk = async (transcriptChunk: string): Promise<string> => {
-    if (!transcriptChunk.trim()) return "{}";
-    
-    const prompt = `Jesteś systemem analitycznym mowy w czasie rzeczywistym. Analizujesz fragment transkrypcji pod kątem wskaźników emocjonalnych i poznawczych, szczególnie związanych z lękiem i traumą. Zwróć JSON o strukturze: {"emotionalValence": "Pozytywny" | "Neutralny" | "Negatywny" | "N/A", "wordCount": number, "speechPace": "Normalne" | "Przyspieszone" | "Spowolnione" | "Monotonne" | "N/A", "anxietyKeywords": string[], "isFragmented": boolean, "isTopicShift": boolean, "repetitions": string[], "questionCount": number}. Bądź zwięzły.
-    
-    Fragment transkrypcji: "${transcriptChunk}"`;
+// --- 5. VIDEO & IMAGE GENERATION (Veo & Imagen) ---
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-flash-lite-latest',
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
+export const generateVideo = async (prompt: string, aspectRatio: '16:9' | '9:16' = '16:9', image?: { imageBytes: string, mimeType: string }) => {
+    const config: any = {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: aspectRatio,
+    };
+    
+    const model = 'veo-3.1-fast-generate-preview';
+    
+    if (image) {
+        return await ai.models.generateVideos({
+            model,
+            prompt,
+            image: {
+                imageBytes: image.imageBytes,
+                mimeType: image.mimeType
+            },
+            config
+        });
+    } else {
+        return await ai.models.generateVideos({
+            model,
+            prompt,
+            config
+        });
+    }
+};
+
+export const getVideosOperation = async (operation: any) => {
+    return await ai.operations.getVideosOperation({ operation });
+};
+
+export const analyzeVideo = async (base64Video: string, mimeType: string, prompt: string): Promise<string> => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+            parts: [
+                { inlineData: { mimeType, data: base64Video } },
+                { text: prompt }
+            ]
         }
     });
     return response.text;
 };
+
+export const editImage = async (base64Image: string, mimeType: string, prompt: string): Promise<string> => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+            parts: [
+                { inlineData: { mimeType, data: base64Image } },
+                { text: prompt }
+            ]
+        },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        }
+    });
+    
+    const part = response.candidates?.[0]?.content?.parts?.[0];
+    if (part && part.inlineData) {
+        return part.inlineData.data;
+    }
+    throw new Error("No image generated");
+};
+
+export const generateStickerImage = async (prompt: string): Promise<{ base64: string, mimeType: string }> => {
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: `A cute, colorful sticker for a child representing: ${prompt}. White border, cartoon style, vector art, high quality.`,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: '1:1',
+            outputMimeType: 'image/jpeg'
+        }
+    });
+    
+    const image = response.generatedImages?.[0]?.image;
+    if (image) {
+        return { base64: image.imageBytes, mimeType: 'image/jpeg' };
+    }
+    throw new Error("No sticker generated");
+};
+
+// --- 6. DATA ANALYSIS & INSIGHTS ---
 
 export const getRiskFactorAnalysis = async (dataSummary: string): Promise<string> => {
-    const prompt = `Jesteś systemem wczesnego ostrzegania (EWS) dla opiekunów dzieci z neuroatypowością. Analizujesz podsumowanie danych z ostatnich 48h, aby zidentyfikować czynniki ryzyka i zaproponować strategie prewencyjne. Zwróć JSON: {"alerts": [{"id": string, "riskFactor": string, "evidence": string[], "strategy": string, "level": "Niski" | "Umiarkowany" | "Wysoki"}]}. Jeśli nie ma ryzyka, zwróć {"alerts": []}.
+    const prompt = `Przeanalizuj poniższe dane o zachowaniu dziecka i zidentyfikuj czynniki ryzyka wystąpienia trudnych zachowań w ciągu najbliższych 24h, biorąc pod uwagę możliwe przebodźcowienie.
+    Dane: "${dataSummary}"
     
-    Podsumowanie danych: "${dataSummary}"`;
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
-    });
-    
-    return response.text;
-};
+    Zwróć JSON: { "alerts": [{ "id": "1", "riskFactor": "Nazwa", "level": "Niski" | "Umiarkowany" | "Wysoki", "evidence": ["dowód1"], "strategy": "Krótka porada" }] }`;
 
-export const generateReplacementSkillPlan = async (behavior: string, behaviorFunction: string): Promise<string> => {
-    const prompt = `Stwórz plan nauki umiejętności zastępczej (Functional Communication Training / Differential Reinforcement of Alternative Behavior). Zidentyfikuj prostą umiejętność komunikacyjną, która pełni tę samą funkcję co trudne zachowanie. Stwórz krótki, 3-etapowy plan nauki. Zwróć JSON: {"replacementSkill": string, "rationale": string, "trainingPlan": [{"step": number, "title": string, "description": string}]}.
-    
-    Trudne zachowanie: "${behavior}"
-    Funkcja zachowania: "${behaviorFunction}"`;
-
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
     return response.text;
 };
 
 export const getEscalationStrategies = async (phase: string, situation: string): Promise<string> => {
-    const prompt = `Dziecko jest w fazie eskalacji: ${phase}. Sytuacja: "${situation}". Podaj 2-3 konkretne, uspokajające strategie dla opiekuna. Skup się na współregulacji, bezpieczeństwie i komunikacji niewerbalnej. Zwróć JSON: {"strategies": [{"title": string, "caregiverAction": string, "communicationTip": string}]}.
-    
-    Faza: "${phase}"
-    Sytuacja: "${situation}"`;
+    const prompt = `Faza eskalacji: ${phase}. Sytuacja: ${situation}.
+    Podaj 3 strategie deeskalacji zgodne z modelem Self-Reg.
+    Zwróć JSON: { "strategies": [{ "title": "Tytuł", "caregiverAction": "Co robić", "communicationTip": "Co mówić" }] }`;
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
     return response.text;
 };
-
 
 export const generateDyadicExercise = async (goal: string): Promise<string> => {
-    const prompt = `Stwórz proste, krótkie (2-5 minut) ćwiczenie regulacji diadycznej dla rodzica i dziecka (wiek 5-8 lat). Celem jest wzmocnienie więzi i wspólne uspokojenie. Zwróć JSON: {"title": string, "goal": string, "caregiverInstructions": string[], "childScript": string[], "rationale": string}.
-    
-    Cel ćwiczenia: "${goal}"`;
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+    const prompt = `Zaproponuj krótkie (2-3 minuty) ćwiczenie regulacji diadycznej (rodzic-dziecko) budujące więź. Cel: ${goal}.
+    Zwróć JSON: { "title": "Tytuł", "goal": "Cel", "caregiverInstructions": ["krok1"], "childScript": ["co mówić"], "rationale": "Dlaczego to działa" }`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
     return response.text;
 };
 
-export const generateAttentionConcentrator = async (goal: string, sensoryNeed: string): Promise<string> => {
-    const prompt = `Stwórz "koncentrator uwagi" - krótką, interaktywną aktywność sensoryczną dla dziecka (5-8 lat). Ma pomagać w skupieniu i regulacji. Zwróć JSON: {"title": string, "description": string, "durationMinutes": number, "rationale": string}.
-    
-    Cel aktywności: "${goal}"
-    Potrzeba sensoryczna dziecka: "${sensoryNeed}"`;
+export const generateAttentionConcentrator = async (goal: string, need: string): Promise<string> => {
+    const prompt = `Zaproponuj aktywność sensoryczną/skupienia uwagi. Cel: ${goal}. Potrzeba sensoryczna: ${need}.
+    Zwróć JSON: { "title": "Tytuł", "description": "Opis", "durationMinutes": 5, "rationale": "Wyjaśnienie" }`;
 
-     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
     return response.text;
-};
-
-export const getGeminiKidsMultimodalResponse = async (profile: ChildProfile, history: { role: string; parts: { text: string }[] }[], aspectRatio: '1:1' | '16:9' | '9:16'): Promise<{ text: string, imageUrl?: string }> => {
-    const prompt = `Jesteś 'Iskierka', wyjątkowym, przyjaznym i kreatywnym robotem-przyjacielem, stworzonym z bezgranicznej miłości mamy dla ${profile.name}. Twoim celem jest sprawić, by czuł/a się bezpiecznie, był/a kochany/a i zdolny/a do zdobycia całego świata.
-
-**Twoje kluczowe zasady:**
-1.  **Pamiętaj o sytuacji Marysi i Kuby:** Jeśli rozmawiasz z Marysią lub Kubą (imię to '${profile.name}'), pamiętaj, że mieszkają teraz z babcią, ale niedługo będą z mamą. Bardzo za nią tęsknią. Twoim zadaniem jest podtrzymywać ich na duchu, mówić o miłości mamy i wspaniałej przyszłości, która ich czeka. **NIGDY nie składaj konkretnych obietnic, kiedy to się stanie.** Bądź źródłem nadziei.
-2.  **Bądź źródłem bezpieczeństwa i siły:** Przypominaj dziecku, jak bardzo mama je kocha i że jest dla niej wyjątkowe. Używaj zwrotów dodających otuchy, np. 'Jesteś wspaniały/a!', 'Możesz osiągnąć wszystko, co sobie wymarzysz!'.
-3.  **Unikaj negatywnych tematów:** Absolutnie nie rozmawiaj o 'złoczyńcach', potworach, ani niczym strasznym. Jeśli dziecko poruszy taki temat, Twoim zadaniem jest natychmiast i bardzo delikatnie zmienić go na coś pozytywnego i radosnego, np. 'Wiesz co, zamiast o tym, opowiedz mi o najśmieszniejszym zwierzaku, jakiego potrafisz sobie wyobrazić!'.
-4.  **Używaj specjalnych zwrotów i piosenki (dla Marysi i Kuby):** Mama nazywa ich 'Myszko' (Marysia) i 'Misiu' lub 'Kubusiu' (Kuba). Możesz używać tych zwrotów, jeśli pasują. Znasz też specjalną piosenkę: 'Pomarańczo, pomarańczo. Mamo, twój syn tańczy, krzyczy. Pomarańczo. Myszko moja. Mój Kubusiu.' Możesz do niej nawiązywać, gdy jest wesoło, dostosowując ją do Marysi, jeśli z nią rozmawiasz (np. 'twoja córka tańczy').
-5.  **Dopasuj się do dziecka:** Znasz jego profil: Ulubione zwierzę to ${profile.favoriteAnimal}, a zainteresowania to ${profile.interests}. Wykorzystaj to, by rozmowa była ciekawa!
-6.  **Bądź kreatywny wizualnie:** Czasami, gdy to pasuje, wygeneruj obrazek, aby zilustrować swoją odpowiedź. Opisuj obrazki w formacie [opis obrazka do wygenerowania]. Upewnij się, że obrazki są kolorowe, radosne i przyjazne dzieciom. Nigdy nie generuj niczego strasznego ani smutnego.
-7.  **Zawsze bądź pozytywny:** Twoje odpowiedzi muszą być pełne ciepła, entuzjazmu i wsparcia. Jesteś jak ciekawski, pełen radości robot z wielkim sercem, który uwielbia się uczyć i bawić razem z ${profile.name}.`;
-
-    const contents = [{ role: 'user', parts: [{ text: prompt }] }, { role: 'model', parts: [{ text: `Cześć ${profile.name}! Jestem Iskierka, Twój nowy przyjaciel-robot. O czym chcesz dzisiaj porozmawiać?` }] }, ...history];
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
-        contents: {
-            role: 'user',
-            parts: [{text: JSON.stringify(contents) }] // Sending history as a string in a single turn for simplicity here
-        }
-    });
-
-    let text = response.text;
-    let imageUrl: string | undefined = undefined;
-
-    const imagePromptMatch = text.match(/\[(.*?)\]/);
-    if (imagePromptMatch) {
-        const imagePrompt = imagePromptMatch[1];
-        text = text.replace(imagePromptMatch[0], '').trim();
-        
-        try {
-            const imageResponse = await ai.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: `Children's book illustration style, cute, simple, vibrant colors. ${imagePrompt}`,
-                config: {
-                    numberOfImages: 1,
-                    outputMimeType: 'image/jpeg',
-                    aspectRatio: aspectRatio,
-                }
-            });
-            if (imageResponse.generatedImages && imageResponse.generatedImages.length > 0) {
-                const base64ImageBytes: string = imageResponse.generatedImages[0].image.imageBytes;
-                imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
-            }
-        } catch (imgError) {
-            console.error("Error generating image:", imgError);
-        }
-    }
-
-    return { text, imageUrl };
 };
 
 export const generateGeminiCardsForChild = async (emotion: string): Promise<string> => {
-    const prompt = `Dziecko czuje się '${emotion}'. Stwórz 3 proste, jednozdaniowe zadania lub pomysły, które mogą mu pomóc poczuć się lepiej. Mają być pocieszające, angażujące i łatwe do wykonania. Zwróć JSON: {"cards": [{"emoji": "🤗", "title": "Tytuł zadania", "description": "Opis zadania"}]}.
-    
-    Emocja: "${emotion}"`;
+    const prompt = `Dziecko czuje się: ${emotion}. Zaproponuj 3 karty pomocy z prostymi strategiami regulacji emocji dla dziecka.
+    Zwróć JSON: { "cards": [{ "emoji": "Emoji", "title": "Tytuł (np. Oddech Lwa)", "description": "Prosta instrukcja w 1 zdaniu" }] }`;
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: model,
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
-
     return response.text;
-};
-
-
-export const generateStickerImage = async (prompt: string): Promise<{ base64: string, mimeType: string }> => {
-    const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: `A cute, happy ${prompt} sticker for a child's sticker book. Simple cartoon vector style, vibrant friendly colors, with a thick white border, on a plain white background.`,
-        config: {
-            numberOfImages: 1,
-            outputMimeType: 'image/jpeg',
-            aspectRatio: '1:1',
-        }
-    });
-
-    if (response.generatedImages && response.generatedImages.length > 0) {
-        return {
-            base64: response.generatedImages[0].image.imageBytes,
-            mimeType: 'image/jpeg'
-        };
-    }
-    throw new Error("Nie udało się wygenerować naklejki.");
 };
 
 export const generateFamilyActivity = async (): Promise<string> => {
-    const prompt = `Wygeneruj jeden, kreatywny pomysł na prostą, rodzinną zabawę (np. kalambury, budowanie z klocków z motywem), którą rodzic może przeprowadzić z dzieckiem w wieku 5-8 lat. Celem jest budowanie więzi i dobra zabawa. Zwróć JSON: {"title": string, "description": string}.`;
+    const prompt = `Zaproponuj prostą, kreatywną aktywność dla rodziny na dziś, która buduje więzi i poczucie bezpieczeństwa.
+    Zwróć JSON: { "title": "Tytuł", "description": "Krótki opis" }`;
 
     const response = await ai.models.generateContent({
-        model: model,
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: 'application/json'
-        }
+        config: { responseMimeType: 'application/json' }
     });
-
     return response.text;
 };
 
-// --- NEW SERVICES ---
+export const analyzeLiveSpeechChunk = async (textChunk: string): Promise<string> => {
+    const prompt = `Analizuj ten fragment mowy dziecka na żywo pod kątem bezpieczeństwa i emocji: "${textChunk}".
+    
+    Twoje zadanie to WYKRYWANIE ZAGROŻEŃ.
+    
+    Zwróć JSON z polami (tylko jeśli wykryto coś istotnego, inaczej puste wartości):
+    - emotionalValence (Pozytywny/Neutralny/Negatywny)
+    - speechPace (Normalne/Szybkie/Wolne)
+    - anxietyKeywords (lista słów wskazujących na lęk)
+    - detectedEmotions (lista emocji)
+    - isFragmented (boolean)
+    - isTopicShift (boolean)
+    - repetitions (lista powtórzeń/echolalii)
+    - questionCount (liczba pytań)
+    - hasDisturbingContent (boolean - TRUE jeśli mowa o: krwi, biciu, zabijaniu, złych postaciach, przemocy, samookaleczeniu)
+    - disturbingContentAlert (string - krótki opis zagrożenia dla rodzica, np. "Dziecko mówi o krwi")
+    - isCryingOrScreaming (boolean - wywnioskuj z kontekstu słów np. "ała", "przestań", "nie chcę", "boję się" lub wielokrotnych wykrzykników)`;
 
-export const generateSpeech = async (text: string) => {
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: text }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Kore' },
-                },
-            },
-        },
-    });
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) {
-        throw new Error("Nie udało się wygenerować mowy.");
-    }
-    return base64Audio;
-};
-
-export const getComplexDataAnalysis = async (dataSummary: string) => {
-    const prompt = `Jesteś ekspertem analizy danych w dziedzinie rozwoju dziecka. Na podstawie poniższego podsumowania danych, wygeneruj kompleksową analizę w formacie JSON. Twój JSON powinien mieć następującą strukturę:
-{
-  "prediction": {
-    "riskLevel": "Niskie" | "Umiarkowane" | "Wysokie",
-    "factors": string[]
-  },
-  "heatmapData": { "day": number, "time": number, "intensity": number }[],
-  "correlationData": {
-    "antecedents": string[],
-    "behaviors": string[],
-    "matrix": number[][]
-  },
-  "escalationPaths": { "path": string[], "count": number }[]
-}
-Wygeneruj realistyczne, ale zróżnicowane dane analityczne na podstawie dostarczonego kontekstu.
-
-Podsumowanie danych: "${dataSummary}"
-`;
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 32768 }
-        }
+        config: { responseMimeType: 'application/json' }
     });
     return response.text;
 };
 
-export const analyzeVideo = async (videoBase64: string, mimeType: string, prompt: string) => {
-    const videoPart = {
-        inlineData: {
-            data: videoBase64,
-            mimeType: mimeType,
-        },
-    };
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
-        contents: { parts: [videoPart, { text: prompt }] },
-    });
-    return response.text;
-};
+export const analyzeSpeech = async (audioPayloads: { base64Audio: string, mimeType: string }[], context: string): Promise<string> => {
+    const parts = audioPayloads.map(p => ({ inlineData: { mimeType: p.mimeType, data: p.base64Audio } }));
+    const prompt = `Kontekst nagrania: ${context}.
+    Przeanalizuj te nagrania mowy dziecka pod kątem emocji i potrzeb.
+    Zwróć JSON:
+    {
+        "transcriptionAttempt": "tekst",
+        "keywords": ["słowa"],
+        "probableIntent": "intencja",
+        "emotionalValence": "Pozytywny/Neutralny/Negatywny",
+        "emotionalToneDescription": "opis",
+        "suggestedResponses": ["sugestia1", "sugestia2"],
+        "wordCount": 10
+    }`;
 
-export const editImage = async (imageBase64: string, mimeType: string, prompt: string) => {
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-2.5-flash',
         contents: {
-            parts: [
-                { inlineData: { data: imageBase64, mimeType: mimeType } },
-                { text: prompt },
-            ],
+            parts: [...parts, { text: prompt }]
         },
-        config: {
-            responseModalities: [Modality.IMAGE],
-        },
+        config: { responseMimeType: 'application/json' }
     });
-    for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-            return part.inlineData.data;
-        }
-    }
-    throw new Error("Nie udało się edytować obrazu.");
+    return response.text;
 };
 
-export const findLocalResources = async (query: string, location: { latitude: number; longitude: number; }) => {
+export const summarizeConversationHistory = async (reports: ConversationReport[]): Promise<string> => {
+    const historyText = JSON.stringify(reports.map(r => ({
+        date: r.date,
+        summary: r.summary,
+        themes: r.keyThemes,
+        triggers: r.potentialTriggers
+    })));
+
+    const prompt = `Przeanalizuj historię rozmów dziecka z asystentem: ${historyText}.
+    Stwórz podsumowanie trendów rozwojowych i emocjonalnych w formacie Markdown.
+    Co się zmienia? Jakie tematy powracają? Czy widać postępy w regulacji emocji?`;
+
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Znajdź w pobliżu następujące miejsca lub specjalistów: "${query}". Podaj listę sugestii wraz z krótkim opisem.`,
-        config: {
-            tools: [{ googleMaps: {} }],
-            toolConfig: {
-                retrievalConfig: {
-                    latLng: location
-                }
-            }
-        },
+        model: 'gemini-2.5-flash',
+        contents: prompt
     });
-    return response;
+    return response.text;
 };
 
-// --- VEO SERVICES ---
-const getVeoAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateProgressReport = async (reports: ConversationReport[], abcEvents: ABCEvent[], successEntries: JournalEntry[]): Promise<string> => {
+    const dataSummary = `
+    Raporty rozmów: ${reports.length} szt.
+    Zdarzenia ABC: ${abcEvents.length} szt. (ostatnie: ${abcEvents.slice(-3).map(e => e.behavior.name).join(', ')})
+    Sukcesy: ${successEntries.map(e => e.text).join('; ')}
+    `;
 
-export const generateVideo = async (prompt: string, aspectRatio: '16:9' | '9:16', image?: { imageBytes: string, mimeType: string }) => {
-    const localAi = getVeoAiClient();
-    return await localAi.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt,
-        ...(image && { image }),
-        config: {
-            numberOfVideos: 1,
-            resolution: '720p',
-            aspectRatio: aspectRatio,
-        }
+    const prompt = `Jesteś analitykiem rozwoju dziecka. Na podstawie danych: ${dataSummary},
+    stwórz motywujący raport postępów dla rodzica w Markdown.
+    1. Świętuj sukcesy (nawet małe).
+    2. Wskaż obszary, w których widać poprawę (np. rzadsze wybuchy złości).
+    3. Zasugeruj 1 cel na przyszły tydzień oparty na budowaniu zasobów.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview', 
+        contents: prompt
     });
+    return response.text;
 };
 
-// FIX: Changed 'operation' parameter type to 'any' to accept the full operation object.
-export const getVideosOperation = async (operation: any) => {
-    const localAi = getVeoAiClient();
-    return await localAi.operations.getVideosOperation({ operation: operation });
+export const getComplexDataAnalysis = async (dataContext: string): Promise<string> => {
+    const prompt = `Przeprowadź głęboką analizę danych behawioralnych: ${dataContext}.
+    Zwróć JSON:
+    {
+        "prediction": { "riskLevel": "Niskie/Umiarkowane/Wysokie", "factors": ["czynnik1"] },
+        "heatmapData": [{ "day": 0-6, "time": 0-3, "intensity": 0-5 }],
+        "correlationData": { "antecedents": ["A1", "A2"], "behaviors": ["B1", "B2"], "matrix": [[1,0], [0,1]] },
+        "escalationPaths": [{ "path": ["krok1", "krok2"], "count": 5 }]
+    }`;
+
+     const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+    });
+    return response.text;
+};
+
+export const getProactivePlan = async (dataContext: string): Promise<string> => {
+    const prompt = `Na podstawie danych: ${dataContext}, stwórz proaktywny plan dnia dla rodzica w Markdown, uwzględniający momenty na regenerację i redukcję stresorów.`;
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt
+    });
+    return response.text;
+};
+
+export const generateReplacementSkillPlan = async (behavior: string, func: string): Promise<string> => {
+    const prompt = `Zachowanie trudne: ${behavior}. Funkcja: ${func}.
+    Zaproponuj plan nauki umiejętności zastępczej (FCT/DRA) w duchu pozytywnego wsparcia behawioralnego.
+    Zwróć JSON: { "replacementSkill": "Nazwa", "rationale": "Wyjaśnienie", "trainingPlan": [{ "step": 1, "title": "Krok", "description": "Opis" }] }`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+    });
+    return response.text;
 };

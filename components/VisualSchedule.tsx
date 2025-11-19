@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { generateVisualSchedule } from '../services/geminiService';
 import { ScheduleStep } from '../types';

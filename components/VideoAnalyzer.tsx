@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { analyzeVideo } from '../services/geminiService';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB

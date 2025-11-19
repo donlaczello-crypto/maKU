@@ -1,27 +1,22 @@
-import React, { useState } from 'react';
-import Icon from './common/Icon';
-import ConfidentialDataWarning from './common/ConfidentialDataWarning';
 
-interface JournalEntry {
-    id: number;
-    text: string;
-    date: string;
+import React, { useState } from 'react';
+import { Icon } from './common/Icon';
+import ConfidentialDataWarning from './common/ConfidentialDataWarning';
+import { JournalEntry } from '../types';
+
+interface SuccessJournalProps {
+    entries: JournalEntry[];
+    onAddEntry: (entry: Omit<JournalEntry, 'id' | 'date'>) => void;
 }
 
-const SuccessJournal: React.FC = () => {
-    const [entries, setEntries] = useState<JournalEntry[]>([]);
+const SuccessJournal: React.FC<SuccessJournalProps> = ({ entries, onAddEntry }) => {
     const [newEntry, setNewEntry] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!newEntry.trim()) return;
 
-        const entry: JournalEntry = {
-            id: Date.now(),
-            text: newEntry,
-            date: new Date().toLocaleString('pl-PL'),
-        };
-        setEntries([entry, ...entries]);
+        onAddEntry({ text: newEntry });
         setNewEntry('');
     };
 
@@ -55,7 +50,7 @@ const SuccessJournal: React.FC = () => {
                     entries.map(entry => (
                         <div key={entry.id} className="bg-white p-5 rounded-xl shadow-md border border-slate-100 transition-shadow">
                             <p className="text-slate-700">{entry.text}</p>
-                            <p className="text-xs text-slate-400 text-right mt-2">{entry.date}</p>
+                            <p className="text-xs text-slate-400 text-right mt-2">{new Date(entry.date).toLocaleString('pl-PL')}</p>
                         </div>
                     ))
                 ) : (

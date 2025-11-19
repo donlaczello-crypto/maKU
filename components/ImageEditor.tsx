@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { editImage } from '../services/geminiService';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
 
 const ImageEditor: React.FC = () => {
@@ -72,7 +72,6 @@ const ImageEditor: React.FC = () => {
                             onClick={() => fileInputRef.current?.click()}
                             className="w-full flex items-center justify-center p-4 bg-slate-100 hover:bg-slate-200 rounded-lg transition text-slate-700 font-semibold border-2 border-dashed border-slate-300"
                         >
-                            {/* FIX: Changed icon name from "image" to "image_edit_auto" to match available icons. */}
                             <Icon name="image_edit_auto" />
                             <span className="ml-2">{originalImage ? 'Zmień obraz' : 'Wybierz obraz'}</span>
                         </button>

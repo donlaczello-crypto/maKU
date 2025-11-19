@@ -1,7 +1,9 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { analyzeSpeech } from '../services/geminiService';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
-import Icon from './common/Icon';
+// Fix: Changed to named import for Icon.
+import { Icon } from './common/Icon';
 import { StructuredSpeechAnalysis } from '../types';
 
 const AnalysisVisualizer: React.FC<{ analysis: StructuredSpeechAnalysis }> = ({ analysis }) => {

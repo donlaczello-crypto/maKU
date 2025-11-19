@@ -1,8 +1,10 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { analyzeDrawing } from '../services/geminiService';
+import { analyzeDrawing, generateDrawingConversationGuide } from '../services/geminiService';
 import ConfidentialDataWarning from './common/ConfidentialDataWarning';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 import { LinkedDrawingData } from '../types';
+import { renderMarkdownSafe } from '../utils/markdown';
 
 const contextTags = [
     "Po kłótni/konflikcie",
@@ -106,6 +108,8 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
     const [error, setError] = useState<string>('');
     const [isEditingAnalysis, setIsEditingAnalysis] = useState<boolean>(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [conversationGuide, setConversationGuide] = useState<string>('');
+    const [isGuideLoading, setIsGuideLoading] = useState<boolean>(false);
 
     // New State for Camera
     const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
@@ -222,6 +226,8 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
         setError('');
         setIsEditingAnalysis(false);
         setIsCameraOpen(false); // Close camera if open
+        setConversationGuide('');
+        setIsGuideLoading(false);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -238,6 +244,8 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
         setIsLoading(true);
         setAnalysis('');
         setIsEditingAnalysis(false);
+        setConversationGuide('');
+        setIsGuideLoading(false);
 
         try {
             const result = await analyzeDrawing(imageBase64, mimeType, customContext, selectedTags);
@@ -269,14 +277,15 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
     const handleCapture = () => {
         if (videoRef.current && canvasRef.current) {
             const video = videoRef.current;
-            const canvas = canvasRef.current;
+            // Fix: Rename 'canvas' to 'canvasElement' to avoid block-scoped variable error.
+            const canvasElement = canvasRef.current;
 
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const context = canvas.getContext('2d');
+            canvasElement.width = video.videoWidth;
+            canvasElement.height = video.videoHeight;
+            const context = canvasElement.getContext('2d');
             if(context) {
                 context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-                canvas.toBlob(async (blob) => {
+                canvasElement.toBlob(async (blob) => {
                     if (blob) {
                         try {
                            const compressedData = await compressImage(blob);
@@ -305,10 +314,10 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
         if (navigator.share && analysis) {
           try {
             const fullContext = [...selectedTags, customContext].filter(Boolean).join('. ');
-            const shareText = `Analiza Rysunku z PASiR\n\n--- Kontekst ---\n${fullContext}\n\n--- Analiza ---\n${analysis}`;
+            const shareText = `Analiza Rysunku z MyPoint\n\n--- Kontekst ---\n${fullContext}\n\n--- Analiza ---\n${analysis}`;
 
             await navigator.share({
-              title: 'Analiza Rysunku z PASiR',
+              title: 'Analiza Rysunku z MyPoint',
               text: shareText,
             });
           } catch (error) {
@@ -323,7 +332,7 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
         if (!imagePreview) return;
         const link = document.createElement('a');
         link.href = imagePreview;
-        link.download = `pasir-rysunek-${Date.now()}.jpeg`;
+        link.download = `mypoint-rysunek-${Date.now()}.jpeg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -333,13 +342,13 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
         if (!analysis) return;
 
         const fullContext = [...selectedTags, customContext].filter(Boolean).join('. ');
-        const content = `Analiza Rysunku z PASiR\n\n--- Kontekst ---\n${fullContext}\n\n--- Analiza ---\n${analysis}`;
+        const content = `Analiza Rysunku z MyPoint\n\n--- Kontekst ---\n${fullContext}\n\n--- Analiza ---\n${analysis}`;
 
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `pasir-analiza-rysunku-${Date.now()}.txt`;
+        link.download = `mypoint-analiza-rysunku-${Date.now()}.txt`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -355,6 +364,28 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
                 imageBase64,
             });
         }
+    };
+
+    const handleGenerateGuide = async () => {
+        if (!analysis || !imageBase64) return;
+
+        setIsGuideLoading(true);
+        setConversationGuide('');
+        setError(''); // Clear previous errors
+
+        try {
+            const guide = await generateDrawingConversationGuide(analysis, imageBase64, mimeType);
+            setConversationGuide(guide);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Wystąpił nieoczekiwany błąd podczas generowania przewodnika.');
+        } finally {
+            setIsGuideLoading(false);
+        }
+    };
+
+    // Use the global renderMarkdownSafe helper
+    const renderGuide = (text: string) => {
+        return <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={renderMarkdownSafe(text)} />;
     };
 
     return (
@@ -511,65 +542,84 @@ const DrawingInterpreter: React.FC<DrawingInterpreterProps> = ({ onLinkToABC }) 
                                     className="flex items-center gap-2 bg-sky-100 text-sky-700 px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-sky-200 transition"
                                     aria-label={analysis ? "Edytuj analizę" : "Wpisz analizę ręcznie"}
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                    <span>{analysis ? 'Edytuj' : 'Wpisz ręcznie'}</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14.125v4.375a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                    </svg>
+                                    <span>{analysis ? "Edytuj" : "Wpisz"}</span>
                                 </button>
                             </div>
                         )}
                     </div>
-                    
                     {isEditingAnalysis ? (
-                        <div>
+                        <div className="space-y-4">
                             <textarea
                                 value={analysis}
                                 onChange={(e) => setAnalysis(e.target.value)}
-                                className="w-full p-3 border border-slate-300 rounded-lg h-48 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
-                                placeholder="Wpisz swoją analizę..."
-                            />
+                                className="w-full p-3 border border-slate-300 rounded-lg h-48 focus:ring-2 focus:ring-sky-500 transition"
+                                placeholder="Wpisz lub edytuj analizę tutaj..."
+                            ></textarea>
                             <button
                                 onClick={() => setIsEditingAnalysis(false)}
-                                className="mt-2 bg-sky-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-sky-700 transition"
+                                className="w-full bg-sky-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-sky-700 transition"
                             >
-                                Zapisz
+                                Zapisz zmiany
                             </button>
                         </div>
                     ) : (
-                        <div className="prose prose-slate max-w-none whitespace-pre-wrap">
-                            {analysis ? (
-                               <p>{analysis}</p>
-                            ) : (
-                                <p className="text-slate-500 italic">Analiza AI nie powiodła się. Możesz wpisać własną analizę, klikając przycisk "Wpisz ręcznie".</p>
+                        <div className="prose prose-slate max-w-none whitespace-pre-wrap">{analysis}</div>
+                    )}
+
+                    {analysis && (
+                        <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
+                            <h3 className="text-xl font-bold text-sky-700">Przewodnik do rozmowy z dzieckiem</h3>
+                            <p className="text-slate-500">Generowanie pomocnych zwrotów i pytań w oparciu o analizę rysunku, aby rozpocząć rozmowę z dzieckiem.</p>
+                            <button
+                                onClick={handleGenerateGuide}
+                                disabled={isGuideLoading}
+                                className="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition disabled:bg-slate-400 flex items-center justify-center"
+                            >
+                                {isGuideLoading ? (
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                ) : null}
+                                {isGuideLoading ? 'Generuję przewodnik...' : 'Wygeneruj przewodnik'}
+                            </button>
+                            {conversationGuide && (
+                                <div className="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                    {renderGuide(conversationGuide)}
+                                </div>
                             )}
                         </div>
                     )}
-                    {analysis && !isEditingAnalysis && (
-                        <div className="mt-4 pt-4 border-t border-slate-200 flex justify-end">
-                            <button
-                                type="button"
-                                onClick={handleLinkToABC}
-                                className="bg-teal-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-teal-600 transition flex items-center gap-2"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-                                </svg>
-                                <span>Połącz z nowym zdarzeniem ABC</span>
-                            </button>
-                        </div>
+                    {analysis && (
+                         <div className="mt-6 pt-6 border-t border-slate-200">
+                             <button
+                                 onClick={handleLinkToABC}
+                                 className="w-full bg-teal-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-teal-700 transition"
+                             >
+                                 Połącz z Rejestratorem ABC
+                             </button>
+                         </div>
                     )}
                 </div>
             )}
-            
+
             {isCameraOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center z-50 p-4">
-                    <video ref={videoRef} autoPlay playsInline className="w-full max-w-3xl max-h-[70vh] rounded-lg shadow-xl" muted></video>
-                    <canvas ref={canvasRef} className="hidden"></canvas>
-                    <div className="mt-6 flex space-x-4">
-                        <button onClick={handleCapture} className="bg-sky-500 text-white font-bold py-3 px-8 rounded-full hover:bg-sky-600 transition text-lg">
-                            Zrób zdjęcie
-                        </button>
-                        <button onClick={handleCloseCamera} className="bg-slate-600 text-white font-bold py-3 px-8 rounded-full hover:bg-slate-700 transition text-lg">
-                            Anuluj
-                        </button>
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="relative bg-white rounded-lg p-4 max-w-lg mx-auto">
+                        <h3 className="text-xl font-bold text-slate-800 mb-4 text-center">Zrób zdjęcie</h3>
+                        <video ref={videoRef} autoPlay playsInline className="w-full h-auto rounded-lg mb-4"></video>
+                        <canvas ref={canvasRef} className="hidden"></canvas>
+                        <div className="flex justify-center gap-4">
+                            <button onClick={handleCapture} className="bg-sky-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-sky-700 transition">
+                                <Icon name="camera" /> Zrób zdjęcie
+                            </button>
+                            <button onClick={handleCloseCamera} className="bg-slate-300 text-slate-700 font-bold py-2 px-4 rounded-lg hover:bg-slate-400 transition">
+                                Anuluj
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

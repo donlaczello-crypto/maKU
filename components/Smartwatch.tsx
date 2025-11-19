@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateGeminiCardsForChild } from '../services/geminiService';
 import { GeminiCard } from '../types';
-import Icon from './common/Icon';
+import { Icon } from './common/Icon';
 
 const emotions = [
     { emoji: '😞', name: 'Smutny' },
